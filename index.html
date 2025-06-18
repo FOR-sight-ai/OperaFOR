@@ -103,7 +103,7 @@
                 api_key: llm.apiKey,
                 servers: config.servers || [
                     {
-                        type: "StreamableHTTP",
+                        type: "http",
                         config: { url: "localhost:9000/mcp" }
                     }
                 ],
