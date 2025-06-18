@@ -195,7 +195,7 @@ def run_fastapi():
 
 def run_webview():
     """Lancer pywebview sur l'URL FastAPI."""
-    webview.create_window("Demo MCP", url=f"http://localhost:{os.getenv('PORT', '5000')}")
+    webview.create_window("Nano agent", url=f"http://localhost:{os.getenv('PORT', '5000')}")
     webview.start()
 
 # --- Logging Configuration ---
