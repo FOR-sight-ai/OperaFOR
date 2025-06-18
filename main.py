@@ -7,6 +7,8 @@ from huggingface_hub import Agent  # Agent wraps MCPClient and handles tools
 from fastmcp import FastMCP
 import webview
 import logging
+import uuid
+import json
 
 # --- MCP Server Definition ---
 mcp = FastMCP("Demo")
@@ -26,6 +28,49 @@ def get_greeting(name: str) -> str:
 # --- FastAPI App Definition ---
 app = FastAPI()
 
+CONV_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conversations")
+os.makedirs(CONV_DIR, exist_ok=True)
+
+CONV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conversation.json")
+
+def load_all_conversations():
+    if not os.path.exists(CONV_FILE):
+        with open(CONV_FILE, 'w') as f:
+            json.dump({}, f)
+        return {}
+    with open(CONV_FILE, 'r') as f:
+        return json.load(f)
+
+def save_all_conversations(convs):
+    with open(CONV_FILE, 'w') as f:
+        json.dump(convs, f, indent=2)
+
+def list_conversations():
+    files = [f for f in os.listdir(CONV_DIR) if f.endswith('.json')]
+    convs = []
+    for f in files:
+        try:
+            with open(os.path.join(CONV_DIR, f), 'r') as fp:
+                data = json.load(fp)
+                convs.append({
+                    "id": f[:-5],
+                    "title": data.get("title", f"Conversation {f[:-5]}")
+                })
+        except Exception:
+            continue
+    return convs
+
+def get_conversation(conv_id):
+    path = os.path.join(CONV_DIR, f"{conv_id}.json")
+    if not os.path.exists(path):
+        return None
+    with open(path, 'r') as fp:
+        return json.load(fp)
+
+def save_conversation(conv_id, data):
+    path = os.path.join(CONV_DIR, f"{conv_id}.json")
+    with open(path, 'w') as fp:
+        json.dump(data, fp, indent=2)
 
 async def runAgent(data):
     prompt = (data.get("prompt") or "").strip()
@@ -92,6 +137,51 @@ async def set_config(request: Request):
     with open(CONFIG_PATH, "w") as f:
         import json
         json.dump(data, f, indent=2)
+    return {"status": "ok"}
+
+@app.get("/conversations")
+async def api_list_conversations():
+    convs = load_all_conversations()
+    return [
+        {"id": cid, "title": c.get("title", f"Conversation {cid}")}
+        for cid, c in convs.items()
+    ]
+
+@app.get("/conversations/{conv_id}")
+async def api_get_conversation(conv_id: str):
+    convs = load_all_conversations()
+    conv = convs.get(conv_id)
+    if conv is None:
+        return JSONResponse(status_code=404, content={"error": "Not found"})
+    return conv
+
+@app.post("/conversations")
+async def api_create_conversation(request: Request):
+    data = await request.json()
+    conv_id = str(uuid.uuid4())
+    from datetime import datetime
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    title = data.get("title") or f"Conversation {now}"
+    conv = {
+        "id": conv_id,
+        "title": title,
+        "messages": []
+    }
+    convs = load_all_conversations()
+    convs[conv_id] = conv
+    save_all_conversations(convs)
+    return conv
+
+@app.post("/conversations/{conv_id}")
+async def api_add_message(conv_id: str, request: Request):
+    data = await request.json()
+    convs = load_all_conversations()
+    conv = convs.get(conv_id)
+    if conv is None:
+        return JSONResponse(status_code=404, content={"error": "Not found"})
+    conv.setdefault("messages", []).append(data)
+    convs[conv_id] = conv
+    save_all_conversations(convs)
     return {"status": "ok"}
 
 # --- Server Launchers ---
