@@ -60,12 +60,6 @@
     <h3>Response</h3>
     <pre id="output">Waiting...</pre>
     <script>
-        function setConfig(value) {
-            localStorage.setItem('llmConfig', value);
-        }
-        function getConfig() {
-            return localStorage.getItem('llmConfig');
-        }
         const defaultConfig = `{
   "llm": {
     "endpoint": "https://openrouter.ai/api/v1/chat/completions",
@@ -73,10 +67,40 @@
     "apiKey": "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"
   }
 }`;
-        window.onload = function () {
-            const savedConfig = getConfig();
-            document.getElementById('config').value = savedConfig || defaultConfig;
+        // Gestion de la configuration via config.json côté serveur
+        async function loadConfig() {
+            try {
+                const res = await fetch('/config.json');
+                if (!res.ok) throw new Error('Erreur de lecture config.json');
+                return await res.json();
+            } catch (e) {
+                // Si le backend n'est pas prêt ou autre erreur
+                return JSON.parse(defaultConfig);
+            }
+        }
+        async function saveConfig(configObj) {
+            try {
+                await fetch('/config.json', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(configObj)
+                });
+            } catch (e) {
+                // Silencieux, mais on pourrait afficher une erreur
+            }
+        }
+        window.onload = async function () {
+            const configObj = await loadConfig();
+            document.getElementById('config').value = JSON.stringify(configObj, null, 2);
         };
+        document.getElementById('config').addEventListener('change', async function () {
+            try {
+                const configObj = JSON.parse(this.value);
+                await saveConfig(configObj);
+            } catch (e) {
+                // Ignore erreurs de parsing
+            }
+        });
         function toggleConfig() {
             const panel = document.getElementById('configPanel');
             const button = document.querySelector('.toggle-button');
@@ -90,8 +114,14 @@
         }
         async function run() {
             const configText = document.getElementById('config').value;
-            setConfig(configText);
-            const config = JSON.parse(configText);
+            let config;
+            try {
+                config = JSON.parse(configText);
+            } catch (e) {
+                document.getElementById('output').textContent = 'Erreur: configuration JSON invalide';
+                return;
+            }
+            await saveConfig(config); // Sauvegarde à chaque exécution
             const userInput = document.getElementById('userInput').value;
             const output = document.getElementById('output');
             output.textContent = "Calling the agent...\n";

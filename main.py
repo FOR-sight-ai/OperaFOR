@@ -2,7 +2,7 @@ import os
 import threading
 import traceback
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from huggingface_hub import Agent  # Agent wraps MCPClient and handles tools
 from fastmcp import FastMCP
 import webview
@@ -65,6 +65,34 @@ async def serve_index():
     """Servir index.html à la racine."""
     index_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
     return FileResponse(index_path, media_type="text/html")
+
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+DEFAULT_CONFIG = {
+    "llm": {
+        "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+        "model": "deepseek/deepseek-chat-v3-0324:free",
+        "apiKey": "your_api_key"
+    }
+}
+
+@app.get("/config.json")
+async def get_config():
+    if not os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH, "w") as f:
+            import json
+            json.dump(DEFAULT_CONFIG, f, indent=2)
+        return JSONResponse(content=DEFAULT_CONFIG)
+    with open(CONFIG_PATH, "r") as f:
+        import json
+        return JSONResponse(content=json.load(f))
+
+@app.post("/config.json")
+async def set_config(request: Request):
+    data = await request.json()
+    with open(CONFIG_PATH, "w") as f:
+        import json
+        json.dump(data, f, indent=2)
+    return {"status": "ok"}
 
 # --- Server Launchers ---
 def run_mcp():
