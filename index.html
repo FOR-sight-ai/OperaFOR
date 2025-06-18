@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>LLM Only Demo</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 2em;
+            background: #f9f9f9;
+        }
+        textarea,
+        input,
+        button {
+            width: 100%;
+            padding: 1em;
+            margin-bottom: 1em;
+            font-family: monospace;
+            font-size: 1em;
+        }
+        pre {
+            background: #333;
+            color: #eee;
+            padding: 1em;
+            border-radius: 5px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        #configPanel {
+            display: none;
+            margin-bottom: 1em;
+        }
+        .toggle-button {
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            padding: 0.5em 1em;
+            cursor: pointer;
+            font-size: 1em;
+            margin-bottom: 1em;
+        }
+    </style>
+</head>
+<body>
+    <h1>LLM Only Demo</h1>
+    <button class="toggle-button" onclick="toggleConfig()">Show Configuration</button>
+    <div id="configPanel">
+        <h3>Configuration (JSON)</h3>
+        <textarea id="config" rows="8"></textarea>
+    </div>
+    <h3>User Request</h3>
+    <textarea id="userInput" rows="4">What's the weather in Paris?</textarea>
+    <button onclick="run()">Run</button>
+    <h3>Response</h3>
+    <pre id="output">Waiting...</pre>
+    <script>
+        function setConfig(value) {
+            localStorage.setItem('llmConfig', value);
+        }
+        function getConfig() {
+            return localStorage.getItem('llmConfig');
+        }
+        const defaultConfig = `{
+  "llm": {
+    "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+    "model": "qwen/qwen3-32b:free",
+    "apiKey": "your_api_key_here"
+  }
+}`;
+        window.onload = function () {
+            const savedConfig = getConfig();
+            document.getElementById('config').value = savedConfig || defaultConfig;
+        };
+        function toggleConfig() {
+            const panel = document.getElementById('configPanel');
+            const button = document.querySelector('.toggle-button');
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+                button.textContent = 'Hide Configuration';
+            } else {
+                panel.style.display = 'none';
+                button.textContent = 'Show Configuration';
+            }
+        }
+        async function run() {
+            const configText = document.getElementById('config').value;
+            setConfig(configText);
+            const config = JSON.parse(configText);
+            const userInput = document.getElementById('userInput').value;
+            const output = document.getElementById('output');
+            output.textContent = "Calling LLM...\n";
+            const history = [
+                { role: "user", content: userInput }
+            ];
+            try {
+                const res = await fetch(config.llm.endpoint, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${config.llm.apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: config.llm.model,
+                        messages: history
+                    })
+                });
+                const json = await res.json();
+                const message = json.choices?.[0]?.message?.content || "No response.";
+                output.textContent = message;
+            } catch (e) {
+                output.textContent = "Error: " + e;
+            }
+        }
+    </script>
+</body>
+</html>
