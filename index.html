@@ -69,7 +69,7 @@
         const defaultConfig = `{
   "llm": {
     "endpoint": "https://openrouter.ai/api/v1/chat/completions",
-    "model": "mistralai/mistral-small-3.1-24b-instruct:free",
+    "model": "deepseek/deepseek-chat-v3-0324:free",
     "apiKey": "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"
   }
 }`;
@@ -104,7 +104,7 @@
                 servers: config.servers || [
                     {
                         type: "http",
-                        config: { url: "localhost:9000/mcp" }
+                        config: { url: "http://localhost:9000/mcp" }
                     }
                 ],
                 prompt: userInput
