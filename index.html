@@ -1,348 +1,217 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 
 <head>
-    <meta charset="UTF-8" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OperaFOR</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body {
-            font-family: sans-serif;
-            margin: 0;
-            background: #f9f9f9;
-            min-height: 100vh;
-            height: 100vh;
-            width: 100vw;
+        .command-line {
+            position: relative;
+        }
+
+        .command-line::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 24px;
+            height: 100%;
+            width: 2px;
+            background-color: #e5e7eb;
+            z-index: 0;
+        }
+
+        .command-collapse {
+            transition: all 0.3s ease;
+            max-height: 0;
             overflow: hidden;
         }
 
-        h1 {
-            margin-top: 1.5em;
-            margin-bottom: 0.5em;
-            text-align: center;
+        .command-collapse.open {
+            max-height: 500px;
         }
 
-        .shadow-panel {
-            background: #fff;
-            border-radius: 12px;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.10), 0 1.5px 4px rgba(0, 0, 0, 0.08);
-            padding: 1.5em;
-            margin: 0;
-            max-width: none;
-            height: 100%;
-            box-sizing: border-box;
+        .sidebar {
+            transition: transform 0.3s ease;
         }
 
-        #configPanel {
-            display: none;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            position: absolute;
-            top: 0;
-            left: 220px;
-            right: 0;
-            bottom: 0;
-            width: auto;
-            max-width: none;
-            min-width: 0;
-            min-height: 0;
-            height: 100vh;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.10), 0 1.5px 4px rgba(0, 0, 0, 0.08);
-            border-radius: 0;
-            background: linear-gradient(120deg, #f7faff 60%, #e6eaff 100%);
-            padding: 2.2em 2em 1.5em 2em;
-            margin: 0;
-            z-index: 21;
-        }
-
-        #configPanel h3 {
-            margin-top: 0;
-            margin-bottom: 1em;
-            font-size: 1.3em;
-            color: #2a3a5a;
-            letter-spacing: 0.01em;
-            text-align: center;
-        }
-
-        #configPanel textarea {
-            border-radius: 10px;
-            border: 1.5px solid #c7d0e0;
-            background: #fafdff;
-            font-size: 1.08em;
-            padding: 1em;
-            width: 100%;
-            min-height: 180px;
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
-            margin-bottom: 0.5em;
-            resize: vertical;
-            color: #2a3a5a;
-        }
-
-        #closeConfigBtn {
-            background: #007BFF;
-            color: #fff;
-            border: none;
-            padding: 0.6em 1.4em;
-            border-radius: 8px;
-            font-size: 1em;
-            cursor: pointer;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
-            transition: background 0.2s;
-        }
-
-        #closeConfigBtn:hover {
-            background: #0056b3;
-        }
-
-        #chatContainer {
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            min-height: 0;
-            max-width: none;
-            position: absolute;
-            top: 0;
-            left: 220px;
-            right: 0;
-            bottom: 0;
-            margin: 0;
-            box-sizing: border-box;
-        }
-
-        #chatHistory {
-            flex: 1;
-            overflow-y: auto;
-            padding-bottom: 1em;
-            margin-bottom: 0.5em;
-            display: flex;
-            flex-direction: column;
-            min-height: 0;
-        }
-
-        #chatInputBar {
-            display: flex;
-            align-items: flex-end;
-            gap: 0.5em;
-            position: sticky;
-            bottom: 0;
-            background: #fff;
-            border-radius: 1px;
-            padding: 0.7em 0.7em 0.7em 0.7em;
-            box-sizing: border-box;
-        }
-
-        #userInput {
-            flex: 1;
-            resize: none;
-            border-radius: 8px;
-            border: 1px solid #ddd;
-            font-size: 1em;
-            padding: 0.8em;
-            margin: 0;
-            background: #f7f7fa;
-            min-height: 44px;
-            max-height: 120px;
-        }
-
-        #sendBtn {
-            background: #007BFF;
-            color: white;
-            border: none;
-            border-radius: 50%;
-            width: 44px;
-            height: 44px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.7em;
-            cursor: pointer;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
-            transition: background 0.2s;
-        }
-
-        #sendBtn:hover {
-            background: #0056b3;
-        }
-
-        .chat-message {
-            display: flex;
-            align-items: flex-end;
-            margin-bottom: 0.7em;
-        }
-
-        .chat-message.user {
-            flex-direction: row-reverse;
-        }
-
-        .chat-message .avatar {
-            font-size: 1.7em;
-            margin: 0 0.5em;
-        }
-
-        .chat-message .bubble {
-            max-width: 70%;
-            padding: 0.9em 1.2em;
-            border-radius: 18px;
-            background: #f0f4ff;
-            color: #222;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
-            font-size: 1.05em;
-            word-break: break-word;
-        }
-
-        .chat-message.user .bubble {
-            background: #d1e7dd;
-            color: #1a3a2b;
-        }
-
-        .chat-message.assistant .bubble {
-            background: #f0f4ff;
-            color: #222;
-        }
-
-        .waiting {
-            color: #888;
-            font-style: italic;
-        }
-
-        #historyPanel {
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 220px;
-            background: #f3f3f8;
-            border-right: 1px solid #e0e0e0;
-            z-index: 30;
-            overflow-y: auto;
-            display: block;
-        }
-
-        #historyPanel h3 {
-            margin: 1em 0 0.5em 1em;
-            font-size: 1.1em;
-            color: #444;
-        }
-
-        #historyList {
-            list-style: none;
-            padding: 0 0 1em 0;
-            margin: 0;
-        }
-
-        #historyList li {
-            padding: 0.7em 1em;
-            cursor: pointer;
-            border-bottom: 1px solid #ececec;
-            color: #333;
-            background: none;
-            transition: background 0.15s;
-        }
-
-        #historyList li.active,
-        #historyList li:hover {
-            background: #e6eaff;
-        }
-
-        #configPanelBtn {
-            position: absolute;
-            left: 50%;
-            bottom: 1.2em;
-            transform: translateX(-50%);
-            background: none;
-            color: #007BFF;
-            border: none;
-            padding: 0.5em 1em;
-            cursor: pointer;
-            font-size: 1.2em;
-            border-radius: 50%;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-            transition: background 0.2s;
-            opacity: 0.25;
-            z-index: 40;
-        }
-
-        #configPanelBtn:hover {
-            background: #f0f0f0;
-        }
-
-        @media (max-width: 600px) {
-
-            .shadow-panel,
-            #chatContainer {
-                max-width: 100vw;
-                margin: 0;
-                border-radius: 0;
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+                position: fixed;
+                z-index: 20;
                 height: 100vh;
             }
 
-            #chatContainer {
-                left: 90vw;
+            .sidebar.open {
+                transform: translateX(0);
             }
 
-            #configPanel {
+            .sidebar-overlay {
+                display: none;
+                position: fixed;
+                top: 0;
                 left: 0;
-                width: 100vw;
-                max-width: 100vw;
-                border-radius: 0;
-                padding: 1.2em 0.5em 1em 0.5em;
+                right: 0;
+                bottom: 0;
+                background-color: rgba(0, 0, 0, 0.5);
+                z-index: 10;
             }
 
-            #historyPanel {
-                width: 90vw;
-                max-width: 320px;
+            .sidebar-overlay.open {
+                display: block;
             }
         }
     </style>
 </head>
 
-<body>
-    <div id="historyPanel">
-        <h3 style="display:flex;align-items:center;gap:0.5em;">
-            Sandboxes
-            <button id="addSandboxBtn" title="Nouveau sandbox"
-                style="margin-left:0.5em;font-size:1.2em;padding:0.1em 0.5em;border-radius:50%;border:none;background:#e6eaff;color:#007BFF;cursor:pointer;">+</button>
-        </h3>
-        <ul id="historyList"></ul>
-        <button id="configPanelBtn" title="Configuration">⚙️</button>
-    </div>
-    <div id="configPanel" class="shadow-panel">
-        <h3>Configuration</h3>
-        <textarea id="config" rows="10" style="width:100%;box-sizing:border-box;"></textarea>
-    </div>
-    <div id="chatContainer" class="shadow-panel">
-        <div style="display:flex;align-items:center;gap:0.7em;margin-bottom:0.7em;">
-            <span id="currentConvTitle"
-                style="font-weight:bold;font-size:1.15em;flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></span>
-            <button id="renameConvBtn" title="Rename"
-                style="background:none;border:none;font-size:1.2em;cursor:pointer;opacity:0.5">✏️</button>
-            <button id="deleteConvBtn" title="Delete"
-                style="background:none;border:none;font-size:1.2em;cursor:pointer;opacity:0.5">🗑️</button>
-        </div>
-        <div id="chatHistory"></div>
-        <div id="chatInputBar">
-            <textarea id="userInput" rows="2" placeholder="Écrivez votre message..." autocomplete="off"></textarea>
-            <button id="sendBtn" title="Envoyer"
-                style="background:#fff;color:grey;border:none;border-radius:10%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:1.7em;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.10);transition:background 0.2s;">
-                <span style="display:inline-block;">➔</span>
-            </button>
-        </div>
-    </div>
-    <div id="sandboxModal"
-        style="display:none;position:fixed;z-index:1000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.25);align-items:center;justify-content:center;">
-        <div
-            style="background:#fff;padding:2em 1.5em;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.15);min-width:260px;max-width:90vw;display:flex;flex-direction:column;align-items:center;">
-            <label for="sandboxTitleInput" style="margin-bottom:0.7em;font-size:1.1em;">Title</label>
-            <input id="sandboxTitleInput" type="text"
-                style="width:100%;padding:0.6em 1em;border-radius:8px;border:1.5px solid #c7d0e0;font-size:1em;margin-bottom:1em;" />
-            <div style="display:flex;gap:1em;">
-                <button id="sandboxModalOk"
-                    style="background:#007BFF;color:#fff;border:none;padding:0.6em 1.4em;border-radius:8px;font-size:1em;cursor:pointer;">Validate</button>
-                <button id="sandboxModalCancel"
-                    style="background:#eee;color:#333;border:none;padding:0.6em 1.4em;border-radius:8px;font-size:1em;cursor:pointer;">Cancel</button>
+<body class="bg-gray-50 font-sans">
+    <div class="flex h-screen overflow-hidden">
+        <!-- Sidebar -->
+        <div class="sidebar bg-white w-64 border-r border-gray-200 flex flex-col">
+            <div class="p-4 border-b border-gray-200">
+                <h1 class="text-xl font-bold text-gray-800">OperaFOR</h1>
+            </div>
+            <div class="flex-1 overflow-y-auto">
+                <div class="p-4">
+                    <button id="addSandboxBtn"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md flex items-center justify-center mb-4">
+                        <i class="fas fa-plus mr-2"></i> Nouveau Sandbox
+                    </button>
+                    <div class="mt-4">
+                        <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">Sandboxes</h3>
+                        <ul id="historyList" class="space-y-1"></ul>
+                    </div>
+                </div>
+            </div>
+            <div class="p-4 border-t border-gray-200 flex justify-center">
+                <div class="flex items-center space-x-2">
+                    <button id="configPanelBtn" class="p-2 rounded-full hover:bg-gray-100">
+                        <i class="fas fa-cog text-gray-500"></i>
+                        <span class="font-medium">Configuration</span>
+                    </button>
+                </div>
             </div>
         </div>
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Header -->
+            <header class="bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+                <button id="sidebar-toggle" class="md:hidden text-gray-500">
+                    <i class="fas fa-bars text-xl"></i>
+                </button>
+                <h2 id="currentConvTitle" class="text-lg font-semibold text-gray-800"></h2>
+                <div class="flex space-x-2">
+                    <button id="renameConvBtn" class="text-gray-500 hover:text-blue-600"><i class="fas fa-edit"></i>
+                    </button>
+                    <button id="deleteConvBtn" class="text-gray-500 hover:text-red-600"><i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </header>
+            <!-- Timeline Panel -->
+            <main class="flex-1 overflow-y-auto p-4 bg-gray-50">
+                <div class="max-w-4xl mx-auto">
+                    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                        <h3 class="text-lg font-medium text-gray-800 mb-4">Timeline du Sandbox</h3>
+                        <div class="command-line space-y-6">
+                            <!-- Placeholder étapes -->
+                            <div class="relative z-10">
+                                <div class="flex items-start">
+                                    <div
+                                        class="flex-shrink-0 h-10 w-10 rounded-full bg-green-100 flex items-center justify-center mr-4">
+                                        <i class="fas fa-check text-green-600"></i>
+                                    </div>
+                                    <div class="flex-1">
+                                        <div class="flex items-center justify-between">
+                                            <h4 class="font-medium text-gray-800">Étape 1</h4>
+                                        </div>
+                                        <div class="mt-1 text-sm text-gray-500">Terminé</div>
+                                        <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">Détail de l'étape
+                                            1...</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="relative z-10">
+                                <div class="flex items-start">
+                                    <div
+                                        class="flex-shrink-0 h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center mr-4">
+                                        <i class="fas fa-spinner text-yellow-500 animate-spin"></i>
+                                    </div>
+                                    <div class="flex-1">
+                                        <div class="flex items-center justify-between">
+                                            <h4 class="font-medium text-gray-800">Étape 2</h4>
+                                        </div>
+                                        <div class="mt-1 text-sm text-gray-500">En cours...</div>
+                                        <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">Détail de l'étape
+                                            2...</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="relative z-10 opacity-70">
+                                <div class="flex items-start">
+                                    <div
+                                        class="flex-shrink-0 h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center mr-4">
+                                        <i class="fas fa-clock text-gray-400"></i>
+                                    </div>
+                                    <div class="flex-1">
+                                        <div class="flex items-center justify-between">
+                                            <h4 class="font-medium text-gray-800">Étape 3</h4>
+                                        </div>
+                                        <div class="mt-1 text-sm text-gray-500">En attente</div>
+                                        <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">Détail de l'étape
+                                            3...</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Chat Panel -->
+                    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                        <div id="chatContainer" class="flex flex-col h-full">
+                            <div id="chatHistory" class="flex-1 overflow-y-auto mb-4" style="min-height:200px;"></div>
+                            <div class="flex items-end space-x-2">
+                                <textarea id="userInput" rows="2"
+                                    class="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 resize-none"
+                                    placeholder="Votre message..."></textarea>
+                                <button id="sendBtn"
+                                    class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md flex items-center"><i
+                                        class="fas fa-paper-plane mr-2"></i>Envoyer</button>
+                            </div>
+                        </div>
+                        <!-- Panneau de configuration caché par défaut -->
+                        <div id="configPanel"
+                            class="fixed inset-0 bg-black bg-opacity-30 z-30 items-center justify-center"
+                            style="display:none;">
+                            <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-lg mx-auto">
+                                <h3 class="text-lg font-semibold mb-4">Configuration</h3>
+                                <textarea id="config"
+                                    class="w-full h-40 border border-gray-300 rounded p-2 font-mono text-sm"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Modal pour nouveau/renommer sandbox -->
+                    <div id="sandboxModal" class="fixed inset-0 bg-black bg-opacity-30 z-40 items-center justify-center"
+                        style="display:none;">
+                        <div
+                            class="bg-white rounded-lg shadow-lg p-6 w-full max-w-sm mx-auto flex flex-col items-center">
+                            <h3 class="text-lg font-semibold mb-4">Titre du Sandbox</h3>
+                            <input id="sandboxTitleInput" class="w-full border border-gray-300 rounded p-2 mb-4"
+                                placeholder="Titre...">
+                            <div class="flex space-x-2">
+                                <button id="sandboxModalOk"
+                                    class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded">OK</button>
+                                <button id="sandboxModalCancel"
+                                    class="bg-gray-300 hover:bg-gray-400 text-gray-800 py-2 px-4 rounded">Annuler</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
     </div>
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
     <script>
         const defaultConfig = `{}`;
         // Gestion de la configuration via config.json côté serveur
