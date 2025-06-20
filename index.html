@@ -434,13 +434,25 @@
                 lastStep.querySelector('.flex-shrink-0').className = 'flex-shrink-0 h-10 w-10 rounded-full bg-green-100 flex items-center justify-center mr-4';
             }
         }
-        async function run() {
-            const userInput = document.getElementById('userInput').value.trim();
+        async function run(userInput) {
+            // Si userInput n'est pas fourni, on prend la valeur du champ
+            if (typeof userInput !== 'string') {
+                userInput = document.getElementById('userInput').value.trim();
+            }
             if (!userInput) return;
-            // Ajoute le prompt dans l'historique local
-            currentConvMessages = (currentConvMessages || []).concat([{ role: 'user', content: userInput }]);
-            renderTimeline(); // Affiche l'étape "En cours..."
-            await addMessageToSandbox(currentConvId, { role: 'user', content: userInput });
+            // Vérifie si le dernier message local est déjà ce userInput (cas du rerun)
+            let needToAddUserMsg = true;
+            if (currentConvMessages.length > 0) {
+                const lastMsg = currentConvMessages[currentConvMessages.length - 1];
+                if (lastMsg.role === 'user' && lastMsg.content === userInput) {
+                    needToAddUserMsg = false;
+                }
+            }
+            if (needToAddUserMsg) {
+                currentConvMessages = (currentConvMessages || []).concat([{ role: 'user', content: userInput }]);
+                renderTimeline(); // Affiche l'étape "En cours..."
+                await addMessageToSandbox(currentConvId, { role: 'user', content: userInput });
+            }
             document.getElementById('userInput').value = '';
             const configText = document.getElementById('config').value;
             let config;
@@ -516,7 +528,7 @@
             }
         }
         // Envoi avec bouton ou Entrée
-        document.getElementById('sendBtn').onclick = run;
+        document.getElementById('sendBtn').onclick = function () { run(); };
         document.getElementById('userInput').addEventListener('keydown', function (e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -572,43 +584,52 @@
             for (let i = 0; i < currentConvMessages.length; i++) {
                 const msg = currentConvMessages[i];
                 if (msg.role === 'user') {
-                    // Commence une nouvelle étape
                     if (currentStep) steps.push(currentStep);
                     currentStep = { prompt: msg.content, responses: [] };
                 } else if (msg.role === 'assistant') {
                     if (!currentStep) {
-                        // Si pas de user avant, rattache à l'étape précédente si possible
                         if (steps.length > 0) {
                             steps[steps.length - 1].responses.push(msg.content);
                         } else {
-                            // Cas rare : assistant en tout premier, crée une étape vide
                             currentStep = { prompt: '', responses: [msg.content] };
                         }
                     } else {
                         currentStep.responses.push(msg.content);
                     }
                 }
-                // Ignore les autres rôles
             }
             if (currentStep) steps.push(currentStep);
-            // Affichage des étapes
             steps.forEach((step, idx) => {
                 const hasResponse = step.responses.length > 0;
-                let status = hasResponse ? 'Terminé' : 'En cours...';
+                let status = hasResponse ? 'Done' : 'In progress...';
                 let icon = hasResponse ? 'fa-check' : 'fa-spinner';
                 let bg = hasResponse ? 'bg-green-100' : 'bg-yellow-100';
                 let iconColor = hasResponse ? 'text-green-600' : 'text-yellow-500 animate-spin';
+                const isLast = idx === steps.length - 1;
                 const stepDiv = document.createElement('div');
                 stepDiv.className = `relative z-10`;
+                // Move the menu button to the left of the circle and translate menu to English
                 stepDiv.innerHTML = `
                     <div class="flex items-start">
-                        <div class="flex-shrink-0 h-10 w-10 rounded-full ${bg} flex items-center justify-center mr-4">
-                            <i class="fas ${icon} ${iconColor}"></i>
+                        <div class="relative flex items-center mr-4" style="transform: translateX(-26px);">
+                            <button class="step-menu-btn w-6 h-6 flex items-center justify-center rounded-full text-gray-500 hover:text-blue-600 focus:outline-none mr-2" title="Options">
+                                <i class="fas fa-ellipsis-v"></i>
+                            </button>
+                            <div class="step-menu hidden absolute left-0 top-8 bg-white border border-gray-200 rounded shadow-lg py-1 min-w-[180px] text-sm"
+                                 style="z-index:50;">
+                                <button class="step-menu-item revert block w-full text-left px-4 py-2 hover:bg-gray-100">Revert to here</button>
+                                <button class="step-menu-item newsandbox block w-full text-left px-4 py-2 hover:bg-gray-100">New sandbox from here</button>
+                                ${isLast ? `<button class="step-menu-item rerun block w-full text-left px-4 py-2 hover:bg-gray-100">Rerun</button>
+                                <button class="step-menu-item delete block w-full text-left px-4 py-2 hover:bg-gray-100 text-red-600">Delete</button>` : ''}
+                            </div>
+                            <div class="flex-shrink-0 h-10 w-10 rounded-full ${bg} flex items-center justify-center">
+                                <i class="fas ${icon} ${iconColor}"></i>
+                            </div>
                         </div>
                         <div class="flex-1">
                             <div class="flex items-center justify-between">
                                 <h4 class="font-medium text-gray-800">${step.prompt || ''}</h4>
-                                <button class="command-toggle text-gray-400 hover:text-gray-600" aria-label="Afficher les détails"><i class="fas fa-chevron-down"></i></button>
+                                <button class="command-toggle text-gray-400 hover:text-gray-600" aria-label="Show details"><i class="fas fa-chevron-down"></i></button>
                             </div>
                             <div class="mt-1 text-sm text-gray-500">${status}</div>
                             <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">
@@ -632,6 +653,103 @@
                     }
                 });
             });
+            // Gestion du menu contextuel sur chaque cercle
+            timeline.querySelectorAll('.step-menu-btn').forEach(function (btn, idx) {
+                btn.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    // Ferme tous les autres menus
+                    document.querySelectorAll('.step-menu').forEach(m => m.classList.add('hidden'));
+                    const menu = btn.parentElement.querySelector('.step-menu');
+                    menu.classList.toggle('hidden');
+                    // Ferme le menu si clic ailleurs
+                    const closeMenu = (ev) => {
+                        if (!menu.contains(ev.target) && ev.target !== btn) {
+                            menu.classList.add('hidden');
+                            document.removeEventListener('mousedown', closeMenu);
+                        }
+                    };
+                    setTimeout(() => document.addEventListener('mousedown', closeMenu), 0);
+                });
+            });
+            // Gestion des actions du menu
+            timeline.querySelectorAll('.step-menu').forEach(function (menu, idx) {
+                const revertBtn = menu.querySelector('.step-menu-item.revert');
+                const newsandboxBtn = menu.querySelector('.step-menu-item.newsandbox');
+                const rerunBtn = menu.querySelector('.step-menu-item.rerun');
+                const deleteBtn = menu.querySelector('.step-menu-item.delete');
+                if (revertBtn) revertBtn.onclick = function () {
+                    alert('Revert to this step (index ' + idx + ')');
+                    menu.classList.add('hidden');
+                    // TODO: implement revert logic
+                };
+                if (newsandboxBtn) newsandboxBtn.onclick = function () {
+                    alert('New sandbox from this step (index ' + idx + ')');
+                    menu.classList.add('hidden');
+                    // TODO: implement new sandbox logic
+                };
+                if (rerunBtn) rerunBtn.onclick = async function () {
+                    menu.classList.add('hidden');
+                    // Supprime le dernier step (jusqu'au dernier user)
+                    const removed = removeLastStepFromMessages();
+                    await patchMessagesOnBackend();
+                    renderTimeline();
+                    // Relance le dernier prompt utilisateur supprimé
+                    let lastUserMsg = null;
+                    for (let i = removed.length - 1; i >= 0; i--) {
+                        if (removed[i].role === 'user') {
+                            lastUserMsg = removed[i];
+                            break;
+                        }
+                    }
+                    if (lastUserMsg) {
+                        // Ajoute le message utilisateur à l'historique local et backend, puis relance run()
+                        currentConvMessages = currentConvMessages.concat([lastUserMsg]);
+                        await patchMessagesOnBackend();
+                        renderTimeline();
+                        // Simule l'envoi du prompt (comme run()), mais sans double ajout
+                        run(lastUserMsg.content);
+                    }
+                };
+                if (deleteBtn) deleteBtn.onclick = async function () {
+                    menu.classList.add('hidden');
+                    if (!confirm('Delete this step and all its messages?')) return;
+                    // Remove all messages up to and including the last user message (only if last step)
+                    if (idx !== steps.length - 1) return;
+                    removeLastStepFromMessages();
+                    await patchMessagesOnBackend();
+                    renderTimeline();
+                };
+            });
+        }
+
+        // --- Fonctions utilitaires pour manipuler l'historique ---
+        function removeLastStepFromMessages() {
+            // Supprime tous les messages à partir du dernier user inclus jusqu'à la fin
+            let lastUserIdx = -1;
+            for (let i = currentConvMessages.length - 1; i >= 0; i--) {
+                if (currentConvMessages[i].role === 'user') {
+                    lastUserIdx = i;
+                    break;
+                }
+            }
+            if (lastUserIdx !== -1) {
+                const removed = currentConvMessages.slice(lastUserIdx);
+                currentConvMessages = currentConvMessages.slice(0, lastUserIdx);
+                return removed;
+            } else {
+                const removed = [...currentConvMessages];
+                currentConvMessages = [];
+                return removed;
+            }
+        }
+        async function patchMessagesOnBackend() {
+            if (currentConvId) {
+                await fetch(`/sandboxes/${currentConvId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: currentConvMessages })
+                });
+            }
         }
     </script>
 </body>

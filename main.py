@@ -207,9 +207,11 @@ async def api_patch_sandbox(conv_id: str, request: Request):
     conv = convs.get(conv_id)
     if conv is None:
         return JSONResponse(status_code=404, content={"error": "Not found"})
-    # Autorise la modification du titre uniquement
+    # Autorise la modification du titre et des messages
     if "title" in data:
         conv["title"] = data["title"]
+    if "messages" in data:
+        conv["messages"] = data["messages"]
     convs[conv_id] = conv
     save_all_sandboxes(convs)
     return {"status": "ok"}
