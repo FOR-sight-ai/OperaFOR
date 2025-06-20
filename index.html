@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8" />
-    <title>Nano agent</title>
+    <title>OperaFOR</title>
     <style>
         body {
             font-family: sans-serif;
@@ -298,7 +298,11 @@
 
 <body>
     <div id="historyPanel">
-        <h3>Conversations</h3>
+        <h3 style="display:flex;align-items:center;gap:0.5em;">
+            Sandboxes
+            <button id="addSandboxBtn" title="Nouveau sandbox"
+                style="margin-left:0.5em;font-size:1.2em;padding:0.1em 0.5em;border-radius:50%;border:none;background:#e6eaff;color:#007BFF;cursor:pointer;">+</button>
+        </h3>
         <ul id="historyList"></ul>
         <button id="configPanelBtn" title="Configuration">⚙️</button>
     </div>
@@ -316,14 +320,24 @@
             </button>
         </div>
     </div>
+    <div id="sandboxModal"
+        style="display:none;position:fixed;z-index:1000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.25);align-items:center;justify-content:center;">
+        <div
+            style="background:#fff;padding:2em 1.5em;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.15);min-width:260px;max-width:90vw;display:flex;flex-direction:column;align-items:center;">
+            <label for="sandboxTitleInput" style="margin-bottom:0.7em;font-size:1.1em;">Titre du nouveau sandbox
+                :</label>
+            <input id="sandboxTitleInput" type="text"
+                style="width:100%;padding:0.6em 1em;border-radius:8px;border:1.5px solid #c7d0e0;font-size:1em;margin-bottom:1em;" />
+            <div style="display:flex;gap:1em;">
+                <button id="sandboxModalOk"
+                    style="background:#007BFF;color:#fff;border:none;padding:0.6em 1.4em;border-radius:8px;font-size:1em;cursor:pointer;">Créer</button>
+                <button id="sandboxModalCancel"
+                    style="background:#eee;color:#333;border:none;padding:0.6em 1.4em;border-radius:8px;font-size:1em;cursor:pointer;">Annuler</button>
+            </div>
+        </div>
+    </div>
     <script>
-        const defaultConfig = `{
-  "llm": {
-    "endpoint": "https://openrouter.ai/api/v1/chat/completions",
-    "model": "deepseek/deepseek-chat-v3-0324:free",
-    "apiKey": "your_api_key"
-  }
-}`;
+        const defaultConfig = `{}`;
         // Gestion de la configuration via config.json côté serveur
         async function loadConfig() {
             try {
@@ -349,13 +363,42 @@
         window.onload = async function () {
             const configObj = await loadConfig();
             document.getElementById('config').value = JSON.stringify(configObj, null, 2);
-            // Afficher le message initial dans l'historique
-            addMessage('assistant', 'Bonjour ! Posez-moi une question.');
-
-            // Créer une nouvelle conversation au démarrage
-            const conv = await createConversation('Nouvelle conversation');
-            currentConvId = conv.id;
-            await loadHistoryPanel();
+            const convs = await fetchSandboxes();
+            renderHistoryList(convs);
+            if (convs.length > 0) {
+                await loadSandbox(convs[0].id);
+            }
+            // Correction : vérification de l'existence du bouton +
+            const addBtn = document.getElementById('addSandboxBtn');
+            const modal = document.getElementById('sandboxModal');
+            const input = document.getElementById('sandboxTitleInput');
+            const okBtn = document.getElementById('sandboxModalOk');
+            const cancelBtn = document.getElementById('sandboxModalCancel');
+            addBtn.onclick = function () {
+                input.value = '';
+                modal.style.display = 'flex';
+                setTimeout(() => input.focus(), 100);
+            };
+            okBtn.onclick = async function () {
+                const title = input.value.trim();
+                if (title) {
+                    modal.style.display = 'none';
+                    const newConv = await createSandbox(title);
+                    if (newConv && newConv.id) {
+                        await loadHistoryPanel();
+                        await loadSandbox(newConv.id);
+                    }
+                } else {
+                    input.focus();
+                }
+            };
+            cancelBtn.onclick = function () {
+                modal.style.display = 'none';
+            };
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') okBtn.click();
+                if (e.key === 'Escape') cancelBtn.click();
+            });
         };
         document.getElementById('config').addEventListener('change', async function () {
             try {
@@ -384,22 +427,22 @@
         let isLoadingHistory = false;
         let currentConvMessages = [];
 
-        async function fetchConversations() {
+        async function fetchSandboxes() {
             try {
-                const res = await fetch('/conversations');
+                const res = await fetch('/sandboxes');
                 if (!res.ok) throw new Error('Erreur de chargement de l\'historique');
                 return await res.json();
             } catch (e) {
                 return [];
             }
         }
-        async function fetchConversation(convId) {
-            const res = await fetch(`/conversations/${convId}`);
+        async function fetchSandbox(convId) {
+            const res = await fetch(`/sandboxes/${convId}`);
             if (!res.ok) return null;
             return await res.json();
         }
-        async function createConversation(title) {
-            const res = await fetch('/conversations', {
+        async function createSandbox(title) {
+            const res = await fetch('/sandboxes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ title })
@@ -407,8 +450,8 @@
             if (!res.ok) return null;
             return await res.json();
         }
-        async function addMessageToConversation(convId, msg) {
-            await fetch(`/conversations/${convId}`, {
+        async function addMessageToSandbox(convId, msg) {
+            await fetch(`/sandboxes/${convId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(msg)
@@ -425,22 +468,22 @@
                 li.onclick = async function () {
                     if (isLoadingHistory) return;
                     isLoadingHistory = true;
-                    await loadConversation(c.id);
+                    await loadSandbox(c.id);
                     isLoadingHistory = false;
                 };
                 ul.appendChild(li);
             });
         }
         async function loadHistoryPanel() {
-            const convs = await fetchConversations();
+            const convs = await fetchSandboxes();
             renderHistoryList(convs);
         }
-        async function loadConversation(convId) {
-            const conv = await fetchConversation(convId);
+        async function loadSandbox(convId) {
+            const conv = await fetchSandbox(convId);
             if (!conv) return;
             currentConvId = convId;
             currentConvMessages = conv.messages || [];
-            renderHistoryList(await fetchConversations());
+            renderHistoryList(await fetchSandboxes());
             // Afficher les messages dans le chat
             const chatHistory = document.getElementById('chatHistory');
             chatHistory.innerHTML = '';
@@ -461,7 +504,7 @@
             const userInput = document.getElementById('userInput').value.trim();
             if (!userInput) return;
             addMessage('user', userInput);
-            await addMessageToConversation(currentConvId, { role: 'user', content: userInput });
+            await addMessageToSandbox(currentConvId, { role: 'user', content: userInput });
             document.getElementById('userInput').value = '';
             const configText = document.getElementById('config').value;
             let config;
@@ -513,7 +556,7 @@
                         updateLastAssistantMessage(responseText);
                     }
                 }
-                await addMessageToConversation(currentConvId, { role: 'assistant', text: responseText });
+                await addMessageToSandbox(currentConvId, { role: 'assistant', text: responseText });
             } catch (e) {
                 updateLastAssistantMessage('Erreur: ' + e);
             }
