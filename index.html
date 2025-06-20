@@ -618,10 +618,11 @@
                             </button>
                             <div class="step-menu hidden absolute left-0 top-8 bg-white border border-gray-200 rounded shadow-lg py-1 min-w-[180px] text-sm"
                                  style="z-index:50;">
-                                <button class="step-menu-item revert block w-full text-left px-4 py-2 hover:bg-gray-100">Revert to here</button>
                                 <button class="step-menu-item newsandbox block w-full text-left px-4 py-2 hover:bg-gray-100">New sandbox from here</button>
                                 ${isLast ? `<button class="step-menu-item rerun block w-full text-left px-4 py-2 hover:bg-gray-100">Rerun</button>
                                 <button class="step-menu-item delete block w-full text-left px-4 py-2 hover:bg-gray-100 text-red-600">Delete</button>` : ''}
+
+                                 ${isLast ? '' : `<button class="step-menu-item revert block w-full text-left px-4 py-2 hover:bg-gray-100 text-red-600">Revert to here</button>`}
                             </div>
                             <div class="flex-shrink-0 h-10 w-10 rounded-full ${bg} flex items-center justify-center">
                                 <i class="fas ${icon} ${iconColor}"></i>
@@ -687,69 +688,20 @@
             });
             // Gestion des actions du menu
             timeline.querySelectorAll('.step-menu').forEach(function (menu, idx) {
-                const revertBtn = menu.querySelector('.step-menu-item.revert');
                 const newsandboxBtn = menu.querySelector('.step-menu-item.newsandbox');
                 const rerunBtn = menu.querySelector('.step-menu-item.rerun');
                 const deleteBtn = menu.querySelector('.step-menu-item.delete');
-                if (revertBtn) revertBtn.onclick = function () {
-                    alert('Revert to this step (index ' + idx + ')');
-                    menu.classList.add('hidden');
-                    // TODO: implement revert logic
-                };
+                const revertBtn = menu.querySelector('.step-menu-item.revert');
                 if (newsandboxBtn) newsandboxBtn.onclick = async function () {
                     menu.classList.add('hidden');
-                    // Copie les messages jusqu'au prochain user après idx (inclus)
-                    function getMessagesUpToNextUserStep(idx) {
-                        // Reconstitue la structure des steps
-                        const steps = [];
-                        let currentStep = null;
-                        for (let i = 0; i < currentConvMessages.length; i++) {
-                            const msg = currentConvMessages[i];
-                            if (msg.role === 'user') {
-                                if (currentStep) steps.push(currentStep);
-                                currentStep = { prompt: msg.content, responses: [] };
-                            } else if (msg.role === 'assistant') {
-                                if (!currentStep) {
-                                    if (steps.length > 0) {
-                                        steps[steps.length - 1].responses.push(msg.content);
-                                    } else {
-                                        currentStep = { prompt: '', responses: [msg.content] };
-                                    }
-                                } else {
-                                    currentStep.responses.push(msg.content);
-                                }
-                            }
-                        }
-                        if (currentStep) steps.push(currentStep);
-                        // On veut tous les messages jusqu'au prochain user après idx (inclus)
-                        let userStepCount = 0;
-                        let lastMsgIdx = -1;
-                        for (let i = 0, msgIdx = 0; i < currentConvMessages.length; i++) {
-                            if (currentConvMessages[i].role === 'user') {
-                                if (userStepCount === idx + 1) {
-                                    lastMsgIdx = i - 1; // index du prochain user après idx
-                                    break;
-                                }
-                                userStepCount++;
-                            }
-                        }
-                        if (lastMsgIdx === -1) {
-                            // Pas de user après idx, on prend tout
-                            return currentConvMessages.slice();
-                        } else {
-                            return currentConvMessages.slice(0, lastMsgIdx);
-                        }
-                    }
                     // Copie le titre
                     const origTitle = document.getElementById('currentConvTitle').textContent;
                     const newTitle = origTitle ? origTitle + ' (copy)' : 'Sandbox (copy)';
-                    // Récupère les messages à copier
-                    const messagesToCopy = getMessagesUpToNextUserStep(idx);
-                    // Crée le nouveau sandbox côté backend
+                    // Crée le nouveau sandbox avec tous les messages du courant
                     const res = await fetch('/sandboxes', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ title: newTitle, messages: messagesToCopy })
+                        body: JSON.stringify({ title: newTitle, messages: currentConvMessages })
                     });
                     if (!res.ok) {
                         alert('Erreur lors de la création du nouveau sandbox.');
@@ -758,6 +710,18 @@
                     const newConv = await res.json();
                     await loadHistoryPanel();
                     if (newConv && newConv.id) {
+                        // Charge le nouveau sandbox
+                        const conv = await fetchSandbox(newConv.id);
+                        if (!conv) return;
+                        // Tronque les messages jusqu'à l'étape idx incluse
+                        const truncated = keepMessagesUpToStep(conv.messages || [], idx);
+                        // Met à jour le backend du nouveau sandbox
+                        await fetch(`/sandboxes/${newConv.id}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ messages: truncated })
+                        });
+                        // Recharge le sandbox pour afficher la timeline tronquée
                         await loadSandbox(newConv.id);
                     }
                 };
@@ -793,7 +757,67 @@
                     await patchMessagesOnBackend();
                     renderTimeline();
                 };
+                if (revertBtn) revertBtn.onclick = async function () {
+                    menu.classList.add('hidden');
+                    // Met à jour l'historique local et backend
+                    currentConvMessages = keepMessagesUpToStep(currentConvMessages, idx);
+                    await patchMessagesOnBackend();
+                    renderTimeline();
+                };
             });
+        }
+
+        // --- Fonction utilitaire commune pour tronquer l'historique jusqu'à une étape incluse ---
+        function keepMessagesUpToStep(messages, idx) {
+            // Reconstitue la structure des steps
+            const steps = [];
+            let currentStep = null;
+            for (let i = 0; i < messages.length; i++) {
+                const msg = messages[i];
+                if (msg.role === 'user') {
+                    if (currentStep) steps.push(currentStep);
+                    currentStep = { prompt: msg.content, responses: [] };
+                } else if (msg.role === 'assistant') {
+                    if (!currentStep) {
+                        if (steps.length > 0) {
+                            steps[steps.length - 1].responses.push(msg.content);
+                        } else {
+                            currentStep = { prompt: '', responses: [msg.content] };
+                        }
+                    } else {
+                        currentStep.responses.push(msg.content);
+                    }
+                }
+            }
+            if (currentStep) steps.push(currentStep);
+            // On veut tous les messages jusqu'à la fin de l'étape idx incluse
+            let userStepCount = 0;
+            let lastMsgIdx = -1;
+            let found = false;
+            for (let i = 0; i < messages.length; i++) {
+                if (messages[i].role === 'user') {
+                    if (userStepCount === idx) {
+                        found = true;
+                    }
+                    userStepCount++;
+                }
+                if (found) {
+                    // On veut garder jusqu'à la fin de cette étape (tous les assistants qui suivent)
+                    // On s'arrête au prochain user (non inclus)
+                    let j = i + 1;
+                    while (j < messages.length && messages[j].role === 'assistant') {
+                        j++;
+                    }
+                    lastMsgIdx = j; // exclusif
+                    break;
+                }
+            }
+            if (lastMsgIdx === -1) {
+                // Si pas trouvé, on garde tout
+                return messages.slice();
+            } else {
+                return messages.slice(0, lastMsgIdx);
+            }
         }
 
         // --- Fonctions utilitaires pour manipuler l'historique ---
