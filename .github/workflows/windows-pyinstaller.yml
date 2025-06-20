@@ -21,7 +21,7 @@ jobs:
           pip install .
       - name: Build EXE with PyInstaller
         run: |
-          pyinstaller --onefile main.py --name mcp-server-demo
+          pyinstaller --onefile --add-data "index.html;." main.py --name mcp-server-demo
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
         with:

@@ -2,13 +2,15 @@ import os
 import threading
 import traceback
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, Response
 from huggingface_hub import Agent  # Agent wraps MCPClient and handles tools
 from fastmcp import FastMCP
 import webview
 import logging
 import uuid
 import json
+import sys
+import importlib.resources
 
 # --- MCP Server Definition ---
 mcp = FastMCP("Demo")
@@ -83,9 +85,18 @@ async def run_agent(request: Request):
 
 @app.get("/")
 async def serve_index():
-    """Servir index.html à la racine."""
-    index_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
-    return FileResponse(index_path, media_type="text/html")
+    """Servir index.html à la racine, compatible PyInstaller."""
+    try:
+        # Si exécuté via PyInstaller, __file__ est dans un bundle
+        if hasattr(sys, '_MEIPASS'):
+            index_path = os.path.join(sys._MEIPASS, "index.html")
+        else:
+            index_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
+        with open(index_path, "rb") as f:
+            content = f.read()
+        return Response(content, media_type="text/html")
+    except Exception as e:
+        return Response(f"Erreur lors du chargement de l'interface : {e}", status_code=500)
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 DEFAULT_CONFIG = {
