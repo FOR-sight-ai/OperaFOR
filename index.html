@@ -573,6 +573,7 @@
                 model: llm.model,
                 base_url: llm.base_url || llm.endpoint, // compatibility
                 api_key: llm.apiKey,
+                convId: currentConvId,
                 servers: config.servers || [
                     {
                         type: "http",
@@ -582,6 +583,8 @@
                 prompt: userInput,
                 messages: messages
             };
+            // --- Correction : capture l'ID de la conversation au moment de l'envoi ---
+            const convIdAtRequest = currentConvId;
             try {
                 const res = await fetch("/agent", {
                     method: "POST",
@@ -599,6 +602,11 @@
                 let responseText = '';
                 const decoder = new TextDecoder();
                 while (!done) {
+                    // --- Vérifie que la conversation n'a pas changé ---
+                    if (currentConvId !== convIdAtRequest) {
+                        // Arrête la lecture et n'affiche rien
+                        break;
+                    }
                     const { value, done: doneReading } = await reader.read();
                     done = doneReading;
                     if (value) {
@@ -606,12 +614,13 @@
                         updateLastAssistantMessage(responseText);
                     }
                 }
-                await addMessageToSandbox(currentConvId, { role: 'assistant', content: responseText });
                 // Met à jour l'historique local avec la question et la réponse
-                currentConvMessages = currentConvMessages.concat([
-                    { role: 'user', content: userInput },
-                    { role: 'assistant', content: responseText }
-                ]);
+                if (currentConvId === convIdAtRequest) {
+                    currentConvMessages = currentConvMessages.concat([
+                        { role: 'user', content: userInput },
+                        { role: 'assistant', content: responseText }
+                    ]);
+                }
             } catch (e) {
                 updateLastAssistantMessage('Erreur: ' + e);
             }

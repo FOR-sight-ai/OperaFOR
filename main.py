@@ -39,7 +39,7 @@ def load_all_sandboxes():
                 "id": str(uuid.uuid4()),
                 "title": "Welcome",
                 "messages": [
-                    {"role": "system", "content": "Welcome ! What can I do for you today? Don't forget to configure your API key in the configuration panel."}
+                    {"role": "assistant", "content": "Welcome ! What can I do for you today? Don't forget to configure your API key in the configuration panel."}
                 ]
             }
             json.dump({first_sandbox["id"]: first_sandbox}, f)
@@ -63,26 +63,34 @@ async def runAgent(data):
     ) as agent:
         await agent.load_tools()
 
+        response_acum = ""
         try:
             if messages:
-                print(messages, flush=True)
                 agent.messages.extend(messages[:-1])
-            
-            print(agent.messages, flush=True)
             async for chunk in agent.run(prompt):
                 if hasattr(chunk, "choices"):
                     delta = chunk.choices[0].delta
                     if delta.content:
                         yield delta.content
+                        response_acum += delta.content
                     if delta.tool_calls:
                         for call in delta.tool_calls:
                             if call.function.name:
                                 print(f"Calling Tool : {call.function.name} {call.function.arguments}\n")
-            print(agent.messages, flush=True)
         except Exception as e:
             tb_str = traceback.format_exc()
             print(f"\nError during agent run: {e}\n{tb_str}", flush=True)
-
+    
+    # saving in conversation
+    convId = (data.get("convId") or "0")
+    new_message = {"role": "assistant", "content": response_acum}
+    convs = load_all_sandboxes()
+    conv = convs.get(convId)
+    if conv is None:
+        conv = {"id": convId, "messages": []}
+    conv.setdefault("messages", []).append(new_message)
+    convs[convId] = conv
+    save_all_sandboxes(convs)
 
 @app.post("/agent")
 async def run_agent(request: Request):
