@@ -64,6 +64,52 @@
                 display: block;
             }
         }
+
+        .floating-input-bar {
+            position: fixed;
+            bottom: 0;
+            right: 20px;
+            width: 90%;
+            max-width: 1000px;
+            background: transparent;
+            padding: 0 0 2rem 0;
+            pointer-events: none;
+            display: flex;
+            justify-content: center;
+        }
+
+        .input-inner {
+            display: flex;
+            align-items: flex-end;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 1.5rem 1.5rem 1.5rem 0.5rem;
+            box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.06);
+            padding: 0.75rem 1.25rem 0.75rem 1.25rem;
+            min-width: 480px;
+            max-width: 1000px;
+            width: 90%;
+            margin: 0;
+            pointer-events: auto;
+        }
+
+        @media (max-width: 900px) {
+            .floating-input-bar {
+                max-width: 100vw;
+                padding: 0 0 1rem 0;
+            }
+
+            .input-inner {
+                min-width: 0;
+                width: 100%;
+                max-width: 100vw;
+            }
+        }
+
+        /* Masquer la barre d'entrée si configPanel ou sandboxModal sont visibles */
+        #configPanel[style*="display: flex"],
+        #sandboxModal[style*="display: flex"]~#floatingInputBar {
+            display: none !important;
+        }
     </style>
 </head>
 
@@ -71,8 +117,14 @@
     <div class="flex h-screen overflow-hidden">
         <!-- Sidebar -->
         <div class="sidebar bg-white w-64 border-r border-gray-200 flex flex-col">
-            <div class="p-4 border-b border-gray-200">
-                <h1 class="text-xl font-bold text-gray-800">OperaFOR</h1>
+            <div class="p-4 border-b border-gray-200 flex items-center justify-between">
+                <h1 class="text-xl font-bold text-gray-800">OperaFOR
+                </h1>
+                <div class="flex space-x-2">
+                    <button id="configPanelBtn" class="text-gray-500 hover:text-blue-600">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                </div>
             </div>
             <div class="flex-1 overflow-y-auto">
                 <div class="p-4">
@@ -86,19 +138,11 @@
                     </div>
                 </div>
             </div>
-            <div class="p-4 border-t border-gray-200 flex justify-center">
-                <div class="flex items-center space-x-2">
-                    <button id="configPanelBtn" class="p-2 rounded-full hover:bg-gray-100">
-                        <i class="fas fa-cog text-gray-500"></i>
-                        <span class="font-medium">Configuration</span>
-                    </button>
-                </div>
-            </div>
         </div>
         <!-- Main Content -->
         <div class="flex-1 flex flex-col overflow-hidden">
             <!-- Header -->
-            <header class="bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+            <header class="bg-white border-gray-200 p-4 flex items-center justify-between">
                 <button id="sidebar-toggle" class="md:hidden text-gray-500">
                     <i class="fas fa-bars text-xl"></i>
                 </button>
@@ -114,98 +158,18 @@
             <main class="flex-1 overflow-y-auto p-4 bg-gray-50">
                 <div class="max-w-4xl mx-auto">
                     <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-                        <div class="command-line space-y-6">
-                            <!-- Placeholder étapes -->
-                            <div class="relative z-10">
-                                <div class="flex items-start">
-                                    <div
-                                        class="flex-shrink-0 h-10 w-10 rounded-full bg-green-100 flex items-center justify-center mr-4">
-                                        <i class="fas fa-check text-green-600"></i>
-                                    </div>
-                                    <div class="flex-1">
-                                        <div class="flex items-center justify-between">
-                                            <h4 class="font-medium text-gray-800">Étape 1</h4>
-                                            <button class="command-toggle text-gray-400 hover:text-gray-600"
-                                                aria-label="Afficher les détails"><i
-                                                    class="fas fa-chevron-down"></i></button>
-                                        </div>
-                                        <div class="mt-1 text-sm text-gray-500">Terminé</div>
-                                        <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">
-                                            <div class="text-sm text-gray-700 mb-2 font-medium">Détail de l'étape 1...
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="relative z-10">
-                                <div class="flex items-start">
-                                    <div
-                                        class="flex-shrink-0 h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center mr-4">
-                                        <i class="fas fa-spinner text-yellow-500 animate-spin"></i>
-                                    </div>
-                                    <div class="flex-1">
-                                        <div class="flex items-center justify-between">
-                                            <h4 class="font-medium text-gray-800">Étape 2</h4>
-                                            <button class="command-toggle text-gray-400 hover:text-gray-600"
-                                                aria-label="Afficher les détails"><i
-                                                    class="fas fa-chevron-down"></i></button>
-                                        </div>
-                                        <div class="mt-1 text-sm text-gray-500">En cours...</div>
-                                        <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">
-                                            <div class="text-sm text-gray-700 mb-2 font-medium">Détail de l'étape 2...
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="relative z-10 opacity-70">
-                                <div class="flex items-start">
-                                    <div
-                                        class="flex-shrink-0 h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center mr-4">
-                                        <i class="fas fa-clock text-gray-400"></i>
-                                    </div>
-                                    <div class="flex-1">
-                                        <div class="flex items-center justify-between">
-                                            <h4 class="font-medium text-gray-800">Étape 3</h4>
-                                            <button class="command-toggle text-gray-400 hover:text-gray-600"
-                                                aria-label="Afficher les détails"><i
-                                                    class="fas fa-chevron-down"></i></button>
-                                        </div>
-                                        <div class="mt-1 text-sm text-gray-500">En attente</div>
-                                        <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">
-                                            <div class="text-sm text-gray-700 mb-2 font-medium">Détail de l'étape 3...
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <div id="timelineContainer" class="command-line space-y-6"></div>
                     </div>
-                    <!-- Chat Panel -->
-                    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-                        <div id="chatContainer" class="flex flex-col h-full">
-                            <div id="chatHistory" class="flex-1 overflow-y-auto mb-4" style="min-height:200px;"></div>
-                            <div class="flex items-end space-x-2">
-                                <textarea id="userInput" rows="2"
-                                    class="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 resize-none"
-                                    placeholder="Votre message..."></textarea>
-                                <button id="sendBtn"
-                                    class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md flex items-center"><i
-                                        class="fas fa-paper-plane mr-2"></i>Send</button>
-                            </div>
-                        </div>
-                        <!-- Panneau de configuration caché par défaut -->
-                        <div id="configPanel"
-                            class="fixed inset-0 bg-black bg-opacity-30 z-30 items-center justify-center"
-                            style="display:none;">
-                            <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-lg mx-auto">
-                                <h3 class="text-lg font-semibold mb-4">Configuration</h3>
-                                <textarea id="config"
-                                    class="w-full h-40 border border-gray-300 rounded p-2 font-mono text-sm"></textarea>
-                                <div class="flex justify-end mt-4">
-                                    <button id="saveCloseConfigBtn"
-                                        class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded">Save</button>
-                                </div>
+                    <!-- Panneau de configuration caché par défaut -->
+                    <div id="configPanel" class="fixed inset-0 bg-black bg-opacity-30 z-30 items-center justify-center"
+                        style="display:none;">
+                        <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-lg mx-auto">
+                            <h3 class="text-lg font-semibold mb-4">Configuration</h3>
+                            <textarea id="config"
+                                class="w-full h-40 border border-gray-300 rounded p-2 font-mono text-sm"></textarea>
+                            <div class="flex justify-end mt-4">
+                                <button id="saveCloseConfigBtn"
+                                    class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded">Save</button>
                             </div>
                         </div>
                     </div>
@@ -224,6 +188,18 @@
                                     class="bg-gray-300 hover:bg-gray-400 text-gray-800 py-2 px-4 rounded">Cancel</button>
                             </div>
                         </div>
+                    </div>
+                </div>
+                <!-- Champ de saisie flottant discret à droite -->
+                <div id="floatingInputBar"
+                    class="floating-input-bar z-30 flex items-center justify-center pointer-events-none">
+                    <div class="input-inner pointer-events-auto">
+                        <textarea id="userInput" rows="2"
+                            class="flex-1 px-3 py-2 border border-gray-300 rounded-l-lg rounded-r-2xl shadow focus:outline-none focus:ring-blue-500 focus:border-blue-500 resize-none bg-white text-sm"
+                            placeholder="Votre message..."></textarea>
+                        <button id="sendBtn"
+                            class="ml-2 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-2xl shadow flex items-center"><i
+                                class="fas fa-paper-plane mr-2"></i>Envoyer</button>
                     </div>
                 </div>
             </main>
@@ -428,27 +404,42 @@
             currentConvId = convId;
             currentConvMessages = conv.messages || [];
             renderHistoryList(await fetchSandboxes());
-            // Afficher les messages dans le chat
-            const chatHistory = document.getElementById('chatHistory');
-            chatHistory.innerHTML = '';
-            (conv.messages || []).forEach(m => {
-                addMessage(m.role, m.content);
-            });
+            // SUPPRIMÉ : affichage du chat
             document.getElementById('currentConvTitle').textContent = conv.title || '';
+            renderTimeline(); // Met à jour la timeline
         }
         // Gestion de l'historique du chat
         function addMessage(role, text) {
-            const chatHistory = document.getElementById('chatHistory');
-            const msgDiv = document.createElement('div');
-            msgDiv.className = 'chat-message ' + role;
-            msgDiv.innerHTML = `<div class="bubble">${text.replace(/\n/g, '<br>')}</div>`;
-            chatHistory.appendChild(msgDiv);
-            chatHistory.scrollTop = chatHistory.scrollHeight;
+            // Ne fait plus rien côté chat, juste timeline
+            renderTimeline(); // Met à jour la timeline après chaque message
+        }
+
+        function updateLastAssistantMessage(text) {
+            // Met à jour dynamiquement le détail de la dernière étape de la timeline
+            const timeline = document.getElementById('timelineContainer');
+            const steps = timeline.querySelectorAll('.relative.z-10');
+            if (steps.length === 0) return;
+            const lastStep = steps[steps.length - 1];
+            const detailDiv = lastStep.querySelector('.command-collapse .text-sm.text-gray-700');
+            if (detailDiv) {
+                detailDiv.innerHTML = text.replace(/\n/g, '<br>');
+            }
+            // Met à jour le statut et l'icône si besoin
+            const statusDiv = lastStep.querySelector('.mt-1.text-sm.text-gray-500');
+            const icon = lastStep.querySelector('.flex-shrink-0 i');
+            if (statusDiv && icon) {
+                statusDiv.textContent = 'Terminé';
+                icon.classList.remove('fa-spinner', 'text-yellow-500', 'animate-spin', 'bg-yellow-100');
+                icon.classList.add('fa-check', 'text-green-600');
+                lastStep.querySelector('.flex-shrink-0').className = 'flex-shrink-0 h-10 w-10 rounded-full bg-green-100 flex items-center justify-center mr-4';
+            }
         }
         async function run() {
             const userInput = document.getElementById('userInput').value.trim();
             if (!userInput) return;
-            addMessage('user', userInput);
+            // Ajoute le prompt dans l'historique local
+            currentConvMessages = (currentConvMessages || []).concat([{ role: 'user', content: userInput }]);
+            renderTimeline(); // Affiche l'étape "En cours..."
             await addMessageToSandbox(currentConvId, { role: 'user', content: userInput });
             document.getElementById('userInput').value = '';
             const configText = document.getElementById('config').value;
@@ -456,14 +447,18 @@
             try {
                 config = JSON.parse(configText);
             } catch (e) {
-                addMessage('assistant', 'Erreur: configuration JSON invalide');
+                // Affiche l'erreur dans la timeline
+                currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: 'Erreur: configuration JSON invalide' }]);
+                renderTimeline();
                 return;
             }
             await saveConfig(config); // Sauvegarde à chaque exécution
-            addMessage('assistant', '<span class="waiting">⏳</span>');
+            // Ajoute une réponse assistant temporaire ⏳
+            currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: '<span class="waiting">⏳</span>' }]);
+            renderTimeline();
             const llm = config.llm || {};
             // Ajout de l'historique dans le payload
-            const messages = (currentConvMessages || []).concat([{ role: 'user', content: userInput }]);
+            const messages = currentConvMessages;
             const payload = {
                 model: llm.model,
                 base_url: llm.base_url || llm.endpoint, // compatibility
@@ -489,7 +484,8 @@
                     body: JSON.stringify(payload)
                 });
                 if (!res.body) {
-                    addMessage('assistant', 'Erreur: Pas de flux de réponse.');
+                    // Affiche l'erreur dans la timeline
+                    updateLastAssistantMessage('Erreur: Pas de flux de réponse.');
                     return;
                 }
                 const reader = res.body.getReader();
@@ -509,23 +505,14 @@
                         updateLastAssistantMessage(responseText);
                     }
                 }
-                // Met à jour l'historique local avec la question et la réponse
+                // Met à jour l'historique local avec la réponse finale
                 if (currentConvId === convIdAtRequest) {
-                    currentConvMessages = currentConvMessages.concat([
-                        { role: 'user', content: userInput },
-                        { role: 'assistant', content: responseText }
-                    ]);
+                    // Remplace la dernière réponse assistant temporaire par la vraie
+                    currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: responseText }]);
+                    renderTimeline();
                 }
             } catch (e) {
                 updateLastAssistantMessage('Erreur: ' + e);
-            }
-        }
-        function updateLastAssistantMessage(text) {
-            const chatHistory = document.getElementById('chatHistory');
-            const msgs = chatHistory.getElementsByClassName('chat-message assistant');
-            if (msgs.length > 0) {
-                const last = msgs[msgs.length - 1];
-                last.querySelector('.bubble').innerHTML = text.replace(/\n/g, '<br>');
             }
         }
         // Envoi avec bouton ou Entrée
@@ -574,6 +561,78 @@
                 }
             });
         });
+
+        function renderTimeline() {
+            const timeline = document.getElementById('timelineContainer');
+            timeline.innerHTML = '';
+            if (!currentConvMessages || currentConvMessages.length === 0) return;
+            // Regroupement correct des étapes : chaque user suivi de 1 ou plusieurs assistant
+            const steps = [];
+            let currentStep = null;
+            for (let i = 0; i < currentConvMessages.length; i++) {
+                const msg = currentConvMessages[i];
+                if (msg.role === 'user') {
+                    // Commence une nouvelle étape
+                    if (currentStep) steps.push(currentStep);
+                    currentStep = { prompt: msg.content, responses: [] };
+                } else if (msg.role === 'assistant') {
+                    if (!currentStep) {
+                        // Si pas de user avant, rattache à l'étape précédente si possible
+                        if (steps.length > 0) {
+                            steps[steps.length - 1].responses.push(msg.content);
+                        } else {
+                            // Cas rare : assistant en tout premier, crée une étape vide
+                            currentStep = { prompt: '', responses: [msg.content] };
+                        }
+                    } else {
+                        currentStep.responses.push(msg.content);
+                    }
+                }
+                // Ignore les autres rôles
+            }
+            if (currentStep) steps.push(currentStep);
+            // Affichage des étapes
+            steps.forEach((step, idx) => {
+                const hasResponse = step.responses.length > 0;
+                let status = hasResponse ? 'Terminé' : 'En cours...';
+                let icon = hasResponse ? 'fa-check' : 'fa-spinner';
+                let bg = hasResponse ? 'bg-green-100' : 'bg-yellow-100';
+                let iconColor = hasResponse ? 'text-green-600' : 'text-yellow-500 animate-spin';
+                const stepDiv = document.createElement('div');
+                stepDiv.className = `relative z-10`;
+                stepDiv.innerHTML = `
+                    <div class="flex items-start">
+                        <div class="flex-shrink-0 h-10 w-10 rounded-full ${bg} flex items-center justify-center mr-4">
+                            <i class="fas ${icon} ${iconColor}"></i>
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex items-center justify-between">
+                                <h4 class="font-medium text-gray-800">${step.prompt || ''}</h4>
+                                <button class="command-toggle text-gray-400 hover:text-gray-600" aria-label="Afficher les détails"><i class="fas fa-chevron-down"></i></button>
+                            </div>
+                            <div class="mt-1 text-sm text-gray-500">${status}</div>
+                            <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">
+                                <div class="text-sm text-gray-700 mb-2 font-medium">${step.responses.map(r => r.replace(/\n/g, '<br>')).join('<hr class=\'my-2\'>')}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                timeline.appendChild(stepDiv);
+            });
+            // Ajoute le comportement repli/dépli
+            timeline.querySelectorAll('.command-toggle').forEach(function (toggle) {
+                toggle.addEventListener('click', function () {
+                    const commandCollapse = this.closest('.flex-1').querySelector('.command-collapse');
+                    const icon = this.querySelector('i');
+                    commandCollapse.classList.toggle('open');
+                    if (commandCollapse.classList.contains('open')) {
+                        icon.classList.replace('fa-chevron-down', 'fa-chevron-up');
+                    } else {
+                        icon.classList.replace('fa-chevron-up', 'fa-chevron-down');
+                    }
+                });
+            });
+        }
     </script>
 </body>
 
