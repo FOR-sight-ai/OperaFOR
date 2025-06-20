@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Workflow Runner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .command-line {
+            position: relative;
+        }
+
+        .command-line::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 24px;
+            height: 100%;
+            width: 2px;
+            background-color: #e5e7eb;
+            z-index: 0;
+        }
+
+        .command-collapse {
+            transition: all 0.3s ease;
+            max-height: 0;
+            overflow: hidden;
+        }
+
+        .command-collapse.open {
+            max-height: 500px;
+        }
+
+        .sidebar {
+            transition: transform 0.3s ease;
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+                position: fixed;
+                z-index: 20;
+                height: 100vh;
+            }
+
+            .sidebar.open {
+                transform: translateX(0);
+            }
+
+            .sidebar-overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: rgba(0, 0, 0, 0.5);
+                z-index: 10;
+            }
+
+            .sidebar-overlay.open {
+                display: block;
+            }
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 font-sans">
+    <div class="flex h-screen overflow-hidden">
+        <!-- Sidebar -->
+        <div class="sidebar bg-white w-64 border-r border-gray-200 flex flex-col">
+            <div class="p-4 border-b border-gray-200">
+                <h1 class="text-xl font-bold text-gray-800">OperaFOR</h1>
+            </div>
+            <div class="flex-1 overflow-y-auto">
+                <div class="p-4">
+                    <button id="new-workflow-btn"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md flex items-center justify-center mb-4">
+                        <i class="fas fa-plus mr-2"></i> New Sandbox
+                    </button>
+                    <div class="mt-4">
+                        <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">Recent Sandboxes
+                        </h3>
+                        <ul id="workflow-list" class="space-y-1">
+                            <li class="p-2 rounded hover:bg-gray-100 cursor-pointer flex items-center">
+                                <i class="fas fa-project-diagram text-blue-500 mr-2"></i>
+                                <span class="truncate">Document Generation</span>
+                            </li>
+                            <li class="p-2 rounded hover:bg-gray-100 cursor-pointer flex items-center">
+                                <i class="fas fa-project-diagram text-blue-500 mr-2"></i>
+                                <span class="truncate">Code Refactoring</span>
+                            </li>
+                            <li class="p-2 rounded hover:bg-gray-100 cursor-pointer flex items-center">
+                                <i class="fas fa-project-diagram text-blue-500 mr-2"></i>
+                                <span class="truncate">Content Analysis</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="p-4 border-t border-gray-200 flex justify-center">
+                <div class="flex items-center space-x-2">
+                    <button class="p-2 rounded-full hover:bg-gray-100">
+                        <i class="fas fa-cog text-gray-500"></i>
+                        <span class="font-medium">Configuration</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Header -->
+            <header class="bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+                <button id="sidebar-toggle" class="md:hidden text-gray-500">
+                    <i class="fas fa-bars text-xl"></i>
+                </button>
+                <h2 class="text-lg font-semibold text-gray-800">Current Sandbox</h2>
+            </header>
+
+            <!-- Workflow Content -->
+            <main class="flex-1 overflow-y-auto p-4 bg-gray-50">
+                <div class="max-w-4xl mx-auto">
+                    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                        <h3 class="text-lg font-medium text-gray-800 mb-4">Sandbox Timeline</h3>
+
+                        <div class="command-line space-y-6">
+                            <!-- Command 1 -->
+                            <div class="relative z-10">
+                                <div class="flex items-start">
+                                    <div
+                                        class="flex-shrink-0 h-10 w-10 rounded-full bg-green-100 flex items-center justify-center mr-4">
+                                        <i class="fas fa-check text-green-600"></i>
+                                    </div>
+                                    <div class="flex-1">
+                                        <div class="flex items-center justify-between">
+                                            <h4 class="font-medium text-gray-800">Initial Content Generation</h4>
+                                            <button class="command-toggle text-gray-400 hover:text-gray-600">
+                                                <i class="fas fa-chevron-down"></i>
+                                            </button>
+                                        </div>
+                                        <div class="mt-1 text-sm text-gray-500">
+                                            <a href="#" class="text-blue-500 hover:underline">/output/step-1</a>
+                                        </div>
+                                        <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">
+                                            <div class="text-sm text-gray-700 mb-2 font-medium">Prompt:</div>
+                                            <div class="text-sm text-gray-600 bg-gray-100 p-2 rounded">
+                                                Generate a comprehensive outline for a technical blog post about the
+                                                benefits of using LLMs in software development workflows. Include
+                                                sections for introduction, key benefits, implementation examples, and
+                                                conclusion.
+                                            </div>
+                                            <div class="mt-2 text-xs text-gray-500">Executed: 2 minutes ago</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Command 2 -->
+                            <div class="relative z-10">
+                                <div class="flex items-start">
+                                    <div
+                                        class="flex-shrink-0 h-10 w-10 rounded-full bg-green-100 flex items-center justify-center mr-4">
+                                        <i class="fas fa-check text-green-600"></i>
+                                    </div>
+                                    <div class="flex-1">
+                                        <div class="flex items-center justify-between">
+                                            <h4 class="font-medium text-gray-800">Expand Introduction</h4>
+                                            <button class="command-toggle text-gray-400 hover:text-gray-600">
+                                                <i class="fas fa-chevron-down"></i>
+                                            </button>
+                                        </div>
+                                        <div class="mt-1 text-sm text-gray-500">
+                                            <a href="#" class="text-blue-500 hover:underline">/output/step-2</a>
+                                        </div>
+                                        <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">
+                                            <div class="text-sm text-gray-700 mb-2 font-medium">Prompt:</div>
+                                            <div class="text-sm text-gray-600 bg-gray-100 p-2 rounded">
+                                                Using the outline from step 1, write a detailed introduction section
+                                                (300-400 words) that explains what LLMs are and why they're becoming
+                                                important in software development. Include statistics or references to
+                                                recent trends if possible.
+                                            </div>
+                                            <div class="mt-2 text-xs text-gray-500">Executed: 1 minute ago</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Command 3 -->
+                            <div class="relative z-10">
+                                <div class="flex items-start">
+                                    <div
+                                        class="flex-shrink-0 h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center mr-4">
+                                        <i class="fas fa-spinner text-yellow-500 animate-spin"></i>
+                                    </div>
+                                    <div class="flex-1">
+                                        <div class="flex items-center justify-between">
+                                            <h4 class="font-medium text-gray-800">Generate Code Examples</h4>
+                                            <button class="command-toggle text-gray-400 hover:text-gray-600">
+                                                <i class="fas fa-chevron-down"></i>
+                                            </button>
+                                        </div>
+                                        <div class="mt-1 text-sm text-gray-500">
+                                            <span class="text-gray-400">Processing...</span>
+                                        </div>
+                                        <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">
+                                            <div class="text-sm text-gray-700 mb-2 font-medium">Prompt:</div>
+                                            <div class="text-sm text-gray-600 bg-gray-100 p-2 rounded">
+                                                For each key benefit mentioned in the outline, provide 1-2 practical
+                                                code examples showing how an LLM could be integrated into a developer's
+                                                workflow. Examples should be in Python and demonstrate real-world use
+                                                cases.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Command 4 (Pending) -->
+                            <div class="relative z-10 opacity-70">
+                                <div class="flex items-start">
+                                    <div
+                                        class="flex-shrink-0 h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center mr-4">
+                                        <i class="fas fa-clock text-gray-400"></i>
+                                    </div>
+                                    <div class="flex-1">
+                                        <div class="flex items-center justify-between">
+                                            <h4 class="font-medium text-gray-800">Review and Refine</h4>
+                                            <button class="command-toggle text-gray-400 hover:text-gray-600">
+                                                <i class="fas fa-chevron-down"></i>
+                                            </button>
+                                        </div>
+                                        <div class="mt-1 text-sm text-gray-500">
+                                            <span class="text-gray-400">Pending</span>
+                                        </div>
+                                        <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">
+                                            <div class="text-sm text-gray-700 mb-2 font-medium">Prompt:</div>
+                                            <div class="text-sm text-gray-600 bg-gray-100 p-2 rounded">
+                                                Review all generated content and suggest improvements for clarity,
+                                                technical accuracy, and flow. Highlight any areas that need more
+                                                explanation or could be condensed.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Add new command -->
+                    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                        <div class="space-y-4">
+                            <textarea id="command-prompt" rows="4"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                placeholder="Describe what you want the LLM to do..."></textarea>
+                            <div class="flex justify-end">
+                                <button id="add-command-btn"
+                                    class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md flex items-center">
+                                    <i class="fas fa-plus mr-2"></i> Add Step
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Mobile sidebar overlay -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Toggle command details
+            const commandToggles = document.querySelectorAll('.command-toggle');
+            commandToggles.forEach(toggle => {
+                toggle.addEventListener('click', function () {
+                    const commandCollapse = this.closest('.flex-1').querySelector('.command-collapse');
+                    const icon = this.querySelector('i');
+
+                    commandCollapse.classList.toggle('open');
+
+                    if (commandCollapse.classList.contains('open')) {
+                        icon.classList.replace('fa-chevron-down', 'fa-chevron-up');
+                    } else {
+                        icon.classList.replace('fa-chevron-up', 'fa-chevron-down');
+                    }
+                });
+            });
+
+            // Toggle mobile sidebar
+            const sidebarToggle = document.getElementById('sidebar-toggle');
+            const sidebar = document.querySelector('.sidebar');
+            const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+            sidebarToggle.addEventListener('click', function () {
+                sidebar.classList.toggle('open');
+                sidebarOverlay.classList.toggle('open');
+            });
+
+            sidebarOverlay.addEventListener('click', function () {
+                sidebar.classList.remove('open');
+                this.classList.remove('open');
+            });
+
+            // Add new command
+            const addCommandBtn = document.getElementById('add-command-btn');
+            addCommandBtn.addEventListener('click', function () {
+                const name = document.getElementById('command-name').value;
+                const prompt = document.getElementById('command-prompt').value;
+
+                if (name && prompt) {
+                    const commandLine = document.querySelector('.command-line');
+
+                    const newCommand = document.createElement('div');
+                    newCommand.className = 'relative z-10 opacity-70';
+                    newCommand.innerHTML = `
+                        <div class="flex items-start">
+                            <div class="flex-shrink-0 h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center mr-4">
+                                <i class="fas fa-clock text-gray-400"></i>
+                            </div>
+                            <div class="flex-1">
+                                <div class="flex items-center justify-between">
+                                    <h4 class="font-medium text-gray-800">${name}</h4>
+                                    <button class="command-toggle text-gray-400 hover:text-gray-600">
+                                        <i class="fas fa-chevron-down"></i>
+                                    </button>
+                                </div>
+                                <div class="mt-1 text-sm text-gray-500">
+                                    <span class="text-gray-400">Pending</span>
+                                </div>
+                                <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">
+                                    <div class="text-sm text-gray-700 mb-2 font-medium">Prompt:</div>
+                                    <div class="text-sm text-gray-600 bg-gray-100 p-2 rounded">${prompt}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+
+                    commandLine.appendChild(newCommand);
+
+                    // Reset form
+                    document.getElementById('command-name').value = '';
+                    document.getElementById('command-prompt').value = '';
+
+                    // Add event listener to new toggle
+                    newCommand.querySelector('.command-toggle').addEventListener('click', function () {
+                        const commandCollapse = this.closest('.flex-1').querySelector('.command-collapse');
+                        const icon = this.querySelector('i');
+
+                        commandCollapse.classList.toggle('open');
+
+                        if (commandCollapse.classList.contains('open')) {
+                            icon.classList.replace('fa-chevron-down', 'fa-chevron-up');
+                        } else {
+                            icon.classList.replace('fa-chevron-up', 'fa-chevron-down');
+                        }
+                    });
+                }
+            });
+
+            // New workflow button
+            const newWorkflowBtn = document.getElementById('new-workflow-btn');
+            newWorkflowBtn.addEventListener('click', function () {
+                // In a real app, this would reset the workflow
+                alert('Starting a new workflow. In a real app, this would clear the current workflow and start fresh.');
+            });
+        });
+    </script>
+</body>
+
+</html>
