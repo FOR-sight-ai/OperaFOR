@@ -682,10 +682,70 @@
                     menu.classList.add('hidden');
                     // TODO: implement revert logic
                 };
-                if (newsandboxBtn) newsandboxBtn.onclick = function () {
-                    alert('New sandbox from this step (index ' + idx + ')');
+                if (newsandboxBtn) newsandboxBtn.onclick = async function () {
                     menu.classList.add('hidden');
-                    // TODO: implement new sandbox logic
+                    // Copie les messages jusqu'au prochain user après idx (inclus)
+                    function getMessagesUpToNextUserStep(idx) {
+                        // Reconstitue la structure des steps
+                        const steps = [];
+                        let currentStep = null;
+                        for (let i = 0; i < currentConvMessages.length; i++) {
+                            const msg = currentConvMessages[i];
+                            if (msg.role === 'user') {
+                                if (currentStep) steps.push(currentStep);
+                                currentStep = { prompt: msg.content, responses: [] };
+                            } else if (msg.role === 'assistant') {
+                                if (!currentStep) {
+                                    if (steps.length > 0) {
+                                        steps[steps.length - 1].responses.push(msg.content);
+                                    } else {
+                                        currentStep = { prompt: '', responses: [msg.content] };
+                                    }
+                                } else {
+                                    currentStep.responses.push(msg.content);
+                                }
+                            }
+                        }
+                        if (currentStep) steps.push(currentStep);
+                        // On veut tous les messages jusqu'au prochain user après idx (inclus)
+                        let userStepCount = 0;
+                        let lastMsgIdx = -1;
+                        for (let i = 0, msgIdx = 0; i < currentConvMessages.length; i++) {
+                            if (currentConvMessages[i].role === 'user') {
+                                if (userStepCount === idx + 1) {
+                                    lastMsgIdx = i - 1; // index du prochain user après idx
+                                    break;
+                                }
+                                userStepCount++;
+                            }
+                        }
+                        if (lastMsgIdx === -1) {
+                            // Pas de user après idx, on prend tout
+                            return currentConvMessages.slice();
+                        } else {
+                            return currentConvMessages.slice(0, lastMsgIdx);
+                        }
+                    }
+                    // Copie le titre
+                    const origTitle = document.getElementById('currentConvTitle').textContent;
+                    const newTitle = origTitle ? origTitle + ' (copy)' : 'Sandbox (copy)';
+                    // Récupère les messages à copier
+                    const messagesToCopy = getMessagesUpToNextUserStep(idx);
+                    // Crée le nouveau sandbox côté backend
+                    const res = await fetch('/sandboxes', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ title: newTitle, messages: messagesToCopy })
+                    });
+                    if (!res.ok) {
+                        alert('Erreur lors de la création du nouveau sandbox.');
+                        return;
+                    }
+                    const newConv = await res.json();
+                    await loadHistoryPanel();
+                    if (newConv && newConv.id) {
+                        await loadSandbox(newConv.id);
+                    }
                 };
                 if (rerunBtn) rerunBtn.onclick = async function () {
                     menu.classList.add('hidden');

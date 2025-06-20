@@ -69,6 +69,8 @@ async def runAgent(data):
 
         response_acum = ""
         try:
+            agent.messages.append(
+                    {"role": "system", "content": "When answering the final question structure your response with html code to be displayed directly in an existing <div>, styled using tailwindcss and fontawesome"})
             if messages:
                 agent.messages.extend(messages[:-1])
             async for chunk in agent.run(prompt):
@@ -169,10 +171,13 @@ async def api_create_sandbox(request: Request):
     from datetime import datetime
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     title = data.get("title") or f"{now}"
+    messages = data.get("messages")
+    if not isinstance(messages, list):
+        messages = []
     conv = {
         "id": conv_id,
         "title": title,
-        "messages": []
+        "messages": messages
     }
     convs = load_all_sandboxes()
     convs[conv_id] = conv
