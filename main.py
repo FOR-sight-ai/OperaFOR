@@ -69,8 +69,8 @@ async def runAgent(data):
 
         response_acum = ""
         try:
-            agent.messages.append(
-                    {"role": "system", "content": "When answering the final question structure your response with html code to be displayed directly in an existing <div>, styled using tailwindcss and fontawesome"})
+            #agent.messages.append(
+            #        {"role": "system", "content": "Always structure your response to the user with html code to be displayed directly in an existing <div>, styled using tailwindcss and fontawesome"})
             if messages:
                 agent.messages.extend(messages[:-1])
             async for chunk in agent.run(prompt):

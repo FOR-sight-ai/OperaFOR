@@ -31,6 +31,7 @@
 
         .command-collapse.open {
             max-height: 500px;
+            overflow-y: auto;
         }
 
         .sidebar {
@@ -627,13 +628,13 @@
                             </div>
                         </div>
                         <div class="flex-1">
-                            <div class="flex items-center justify-between">
-                                <h4 class="font-medium text-gray-800">${step.prompt || ''}</h4>
+                            <div class="flex items-center justify-between cursor-pointer user-prompt">
+                                <h4 class="font-medium text-gray-800 ">${step.prompt || ''}</h4>
                                 <button class="command-toggle text-gray-400 hover:text-gray-600" aria-label="Show details"><i class="fas fa-chevron-down"></i></button>
                             </div>
                             <div class="mt-1 text-sm text-gray-500">${status}</div>
                             <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">
-                                <div class="text-sm text-gray-700 mb-2 font-medium">${step.responses.map(r => r.replace(/\n/g, '<br>')).join('<hr class=\'my-2\'>')}</div>
+                                <div class="text-sm text-gray-700 mb-2 font-medium">${step.responses.map(r => r.replace(/\n/g, '<br>')).join('<hr class=\"my-2\">')}</div>
                             </div>
                         </div>
                     </div>
@@ -645,6 +646,19 @@
                 toggle.addEventListener('click', function () {
                     const commandCollapse = this.closest('.flex-1').querySelector('.command-collapse');
                     const icon = this.querySelector('i');
+                    commandCollapse.classList.toggle('open');
+                    if (commandCollapse.classList.contains('open')) {
+                        icon.classList.replace('fa-chevron-down', 'fa-chevron-up');
+                    } else {
+                        icon.classList.replace('fa-chevron-up', 'fa-chevron-down');
+                    }
+                });
+            });
+            // Ajout : clic sur le prompt utilisateur pour ouvrir/fermer le détail
+            timeline.querySelectorAll('.user-prompt').forEach(function (prompt) {
+                prompt.addEventListener('click', function () {
+                    const commandCollapse = this.closest('.flex-1').querySelector('.command-collapse');
+                    const icon = this.parentElement.querySelector('.command-toggle i');
                     commandCollapse.classList.toggle('open');
                     if (commandCollapse.classList.contains('open')) {
                         icon.classList.replace('fa-chevron-down', 'fa-chevron-up');
