@@ -37,7 +37,7 @@ def load_all_sandboxes():
         with open(CONV_FILE, 'w') as f:           
             first_sandbox = {
                 "id": str(uuid.uuid4()),
-                "title": "First Sandbox",
+                "title": "Welcome",
                 "messages": [
                     {"role": "system", "content": "Welcome ! What can I do for you today? Don't forget to configure your API key in the configuration panel."}
                 ]
@@ -65,9 +65,10 @@ async def runAgent(data):
 
         try:
             if messages:
-                print(messages)
-                agent.messages.extend(messages)
-            # Compatibilité : prompt seul
+                print(messages, flush=True)
+                agent.messages.extend(messages[:-1])
+            
+            print(agent.messages, flush=True)
             async for chunk in agent.run(prompt):
                 if hasattr(chunk, "choices"):
                     delta = chunk.choices[0].delta
@@ -77,6 +78,7 @@ async def runAgent(data):
                         for call in delta.tool_calls:
                             if call.function.name:
                                 print(f"Calling Tool : {call.function.name} {call.function.arguments}\n")
+            print(agent.messages, flush=True)
         except Exception as e:
             tb_str = traceback.format_exc()
             print(f"\nError during agent run: {e}\n{tb_str}", flush=True)
@@ -173,6 +175,29 @@ async def api_add_message(conv_id: str, request: Request):
     if conv is None:
         return JSONResponse(status_code=404, content={"error": "Not found"})
     conv.setdefault("messages", []).append(data)
+    convs[conv_id] = conv
+    save_all_sandboxes(convs)
+    return {"status": "ok"}
+
+@app.delete("/sandboxes/{conv_id}")
+async def api_delete_sandbox(conv_id: str):
+    convs = load_all_sandboxes()
+    if conv_id not in convs:
+        return JSONResponse(status_code=404, content={"error": "Not found"})
+    del convs[conv_id]
+    save_all_sandboxes(convs)
+    return {"status": "deleted"}
+
+@app.patch("/sandboxes/{conv_id}")
+async def api_patch_sandbox(conv_id: str, request: Request):
+    data = await request.json()
+    convs = load_all_sandboxes()
+    conv = convs.get(conv_id)
+    if conv is None:
+        return JSONResponse(status_code=404, content={"error": "Not found"})
+    # Autorise la modification du titre uniquement
+    if "title" in data:
+        conv["title"] = data["title"]
     convs[conv_id] = conv
     save_all_sandboxes(convs)
     return {"status": "ok"}

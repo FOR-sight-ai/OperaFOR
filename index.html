@@ -311,6 +311,14 @@
         <textarea id="config" rows="10" style="width:100%;box-sizing:border-box;"></textarea>
     </div>
     <div id="chatContainer" class="shadow-panel">
+        <div style="display:flex;align-items:center;gap:0.7em;margin-bottom:0.7em;">
+            <span id="currentConvTitle"
+                style="font-weight:bold;font-size:1.15em;flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></span>
+            <button id="renameConvBtn" title="Rename"
+                style="background:none;border:none;font-size:1.2em;cursor:pointer;opacity:0.5">✏️</button>
+            <button id="deleteConvBtn" title="Delete"
+                style="background:none;border:none;font-size:1.2em;cursor:pointer;opacity:0.5">🗑️</button>
+        </div>
         <div id="chatHistory"></div>
         <div id="chatInputBar">
             <textarea id="userInput" rows="2" placeholder="Écrivez votre message..." autocomplete="off"></textarea>
@@ -324,15 +332,14 @@
         style="display:none;position:fixed;z-index:1000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.25);align-items:center;justify-content:center;">
         <div
             style="background:#fff;padding:2em 1.5em;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.15);min-width:260px;max-width:90vw;display:flex;flex-direction:column;align-items:center;">
-            <label for="sandboxTitleInput" style="margin-bottom:0.7em;font-size:1.1em;">Titre du nouveau sandbox
-                :</label>
+            <label for="sandboxTitleInput" style="margin-bottom:0.7em;font-size:1.1em;">Title</label>
             <input id="sandboxTitleInput" type="text"
                 style="width:100%;padding:0.6em 1em;border-radius:8px;border:1.5px solid #c7d0e0;font-size:1em;margin-bottom:1em;" />
             <div style="display:flex;gap:1em;">
                 <button id="sandboxModalOk"
-                    style="background:#007BFF;color:#fff;border:none;padding:0.6em 1.4em;border-radius:8px;font-size:1em;cursor:pointer;">Créer</button>
+                    style="background:#007BFF;color:#fff;border:none;padding:0.6em 1.4em;border-radius:8px;font-size:1em;cursor:pointer;">Validate</button>
                 <button id="sandboxModalCancel"
-                    style="background:#eee;color:#333;border:none;padding:0.6em 1.4em;border-radius:8px;font-size:1em;cursor:pointer;">Annuler</button>
+                    style="background:#eee;color:#333;border:none;padding:0.6em 1.4em;border-radius:8px;font-size:1em;cursor:pointer;">Cancel</button>
             </div>
         </div>
     </div>
@@ -399,6 +406,48 @@
                 if (e.key === 'Enter') okBtn.click();
                 if (e.key === 'Escape') cancelBtn.click();
             });
+            const renameBtn = document.getElementById('renameConvBtn');
+            const deleteBtn = document.getElementById('deleteConvBtn');
+            renameBtn.onclick = function () {
+                if (!currentConvId) return;
+                // Réutilise la modale pour renommer
+                input.value = document.getElementById('currentConvTitle').textContent;
+                modal.style.display = 'flex';
+                setTimeout(() => input.focus(), 100);
+                okBtn.onclick = async function () {
+                    const newTitle = input.value.trim();
+                    if (newTitle) {
+                        modal.style.display = 'none';
+                        const ok = await renameSandbox(currentConvId, newTitle);
+                        if (ok) {
+                            await loadHistoryPanel();
+                            await loadSandbox(currentConvId);
+                        }
+                    } else {
+                        alert('Le titre ne peut pas être vide.');
+                        input.focus();
+                    }
+                };
+            };
+            deleteBtn.onclick = async function () {
+                if (!currentConvId) return;
+                if (confirm('Supprimer cette conversation ?')) {
+                    const ok = await deleteSandbox(currentConvId);
+                    if (ok) {
+                        await loadHistoryPanel();
+                        // Charge la première conversation restante, sinon vide le chat
+                        const convs = await fetchSandboxes();
+                        if (convs.length > 0) {
+                            await loadSandbox(convs[0].id);
+                        } else {
+                            currentConvId = null;
+                            currentConvMessages = [];
+                            document.getElementById('chatHistory').innerHTML = '';
+                            document.getElementById('currentConvTitle').textContent = '';
+                        }
+                    }
+                }
+            };
         };
         document.getElementById('config').addEventListener('change', async function () {
             try {
@@ -490,6 +539,7 @@
             (conv.messages || []).forEach(m => {
                 addMessage(m.role, m.content);
             });
+            document.getElementById('currentConvTitle').textContent = conv.title || '';
         }
         // Gestion de l'historique du chat
         function addMessage(role, text) {
@@ -518,7 +568,7 @@
             addMessage('assistant', '<span class="waiting">⏳</span>');
             const llm = config.llm || {};
             // Ajout de l'historique dans le payload
-            const messages = (currentConvMessages || []).concat([{ role: 'user', text: userInput }]);
+            const messages = (currentConvMessages || []).concat([{ role: 'user', content: userInput }]);
             const payload = {
                 model: llm.model,
                 base_url: llm.base_url || llm.endpoint, // compatibility
@@ -556,7 +606,12 @@
                         updateLastAssistantMessage(responseText);
                     }
                 }
-                await addMessageToSandbox(currentConvId, { role: 'assistant', text: responseText });
+                await addMessageToSandbox(currentConvId, { role: 'assistant', content: responseText });
+                // Met à jour l'historique local avec la question et la réponse
+                currentConvMessages = currentConvMessages.concat([
+                    { role: 'user', content: userInput },
+                    { role: 'assistant', content: responseText }
+                ]);
             } catch (e) {
                 updateLastAssistantMessage('Erreur: ' + e);
             }
@@ -577,6 +632,19 @@
                 run();
             }
         });
+        // Fonctions pour supprimer et renommer une conversation
+        async function deleteSandbox(convId) {
+            const res = await fetch(`/sandboxes/${convId}`, { method: 'DELETE' });
+            return res.ok;
+        }
+        async function renameSandbox(convId, newTitle) {
+            const res = await fetch(`/sandboxes/${convId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title: newTitle })
+            });
+            return res.ok;
+        }
     </script>
 </body>
 
