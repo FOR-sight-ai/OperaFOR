@@ -382,6 +382,7 @@
 
         let currentConvId = null;
         let isLoadingHistory = false;
+        let currentConvMessages = [];
 
         async function fetchConversations() {
             try {
@@ -438,12 +439,13 @@
             const conv = await fetchConversation(convId);
             if (!conv) return;
             currentConvId = convId;
+            currentConvMessages = conv.messages || [];
             renderHistoryList(await fetchConversations());
             // Afficher les messages dans le chat
             const chatHistory = document.getElementById('chatHistory');
             chatHistory.innerHTML = '';
             (conv.messages || []).forEach(m => {
-                addMessage(m.role, m.text);
+                addMessage(m.role, m.content);
             });
         }
         // Gestion de l'historique du chat
@@ -459,7 +461,7 @@
             const userInput = document.getElementById('userInput').value.trim();
             if (!userInput) return;
             addMessage('user', userInput);
-            await addMessageToConversation(currentConvId, { role: 'user', text: userInput });
+            await addMessageToConversation(currentConvId, { role: 'user', content: userInput });
             document.getElementById('userInput').value = '';
             const configText = document.getElementById('config').value;
             let config;
@@ -472,6 +474,8 @@
             await saveConfig(config); // Sauvegarde à chaque exécution
             addMessage('assistant', '<span class="waiting">⏳</span>');
             const llm = config.llm || {};
+            // Ajout de l'historique dans le payload
+            const messages = (currentConvMessages || []).concat([{ role: 'user', text: userInput }]);
             const payload = {
                 model: llm.model,
                 base_url: llm.base_url || llm.endpoint, // compatibility
@@ -482,7 +486,8 @@
                         config: { url: "http://localhost:9000/mcp" }
                     }
                 ],
-                prompt: userInput
+                prompt: userInput,
+                messages: messages
             };
             try {
                 const res = await fetch("/agent", {

@@ -11,4 +11,9 @@ dependencies = [
     "mcp[cli]>=1.9.4",
     "pywebview>=5.4",
     "uvicorn>=0.34.3",
+    "pyinstaller"
 ]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

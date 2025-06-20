@@ -28,9 +28,6 @@ def get_greeting(name: str) -> str:
 # --- FastAPI App Definition ---
 app = FastAPI()
 
-CONV_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conversations")
-os.makedirs(CONV_DIR, exist_ok=True)
-
 CONV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conversation.json")
 
 def load_all_conversations():
@@ -45,34 +42,9 @@ def save_all_conversations(convs):
     with open(CONV_FILE, 'w') as f:
         json.dump(convs, f, indent=2)
 
-def list_conversations():
-    files = [f for f in os.listdir(CONV_DIR) if f.endswith('.json')]
-    convs = []
-    for f in files:
-        try:
-            with open(os.path.join(CONV_DIR, f), 'r') as fp:
-                data = json.load(fp)
-                convs.append({
-                    "id": f[:-5],
-                    "title": data.get("title", f"Conversation {f[:-5]}")
-                })
-        except Exception:
-            continue
-    return convs
-
-def get_conversation(conv_id):
-    path = os.path.join(CONV_DIR, f"{conv_id}.json")
-    if not os.path.exists(path):
-        return None
-    with open(path, 'r') as fp:
-        return json.load(fp)
-
-def save_conversation(conv_id, data):
-    path = os.path.join(CONV_DIR, f"{conv_id}.json")
-    with open(path, 'w') as fp:
-        json.dump(data, fp, indent=2)
-
 async def runAgent(data):
+    # On récupère l'historique complet si fourni
+    messages = data.get("messages")
     prompt = (data.get("prompt") or "").strip()
 
     async with Agent(
@@ -84,6 +56,10 @@ async def runAgent(data):
         await agent.load_tools()
 
         try:
+            if messages:
+                print(messages)
+                agent.messages.extend(messages)
+            # Compatibilité : prompt seul
             async for chunk in agent.run(prompt):
                 if hasattr(chunk, "choices"):
                     delta = chunk.choices[0].delta
