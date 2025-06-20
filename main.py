@@ -3,6 +3,7 @@ import threading
 import traceback
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from huggingface_hub import Agent  # Agent wraps MCPClient and handles tools
 from fastmcp import FastMCP
 import webview
@@ -29,6 +30,9 @@ def get_greeting(name: str) -> str:
 
 # --- FastAPI App Definition ---
 app = FastAPI()
+
+# Ajout du montage pour les fichiers statiques
+app.mount("/static", StaticFiles(directory=os.path.dirname(os.path.abspath(__file__))), name="static")
 
 CONV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sandboxes.json")
 
