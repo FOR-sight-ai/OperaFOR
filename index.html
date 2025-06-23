@@ -107,7 +107,10 @@
         }
 
         /* Masquer la barre d'entrée si configPanel ou sandboxModal sont visibles */
-        #configPanel[style*="display: flex"],
+        #configPanel[style*="display: flex"]~#sandboxModal[style*="display: flex"]~#floatingInputBar {
+            display: none !important;
+        }
+
         #sandboxModal[style*="display: flex"]~#floatingInputBar {
             display: none !important;
         }
@@ -324,13 +327,10 @@
         // Affichage/fermeture du panneau de configuration via le nouveau bouton
         document.getElementById('configPanelBtn').onclick = function () {
             const configPanel = document.getElementById('configPanel');
-            const chatContainer = document.getElementById('chatContainer');
             if (configPanel.style.display === 'flex') {
                 configPanel.style.display = 'none';
-                chatContainer.style.display = 'flex';
             } else {
                 configPanel.style.display = 'flex';
-                chatContainer.style.display = 'none';
             }
         };
         // Par défaut, cacher le panneau config
