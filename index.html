@@ -484,7 +484,8 @@
                     }
                 ],
                 prompt: userInput,
-                messages: messages
+                messages: messages,
+                sandbox_id: currentConvId,
             };
             // --- Correction : capture l'ID de la conversation au moment de l'envoi ---
             const convIdAtRequest = currentConvId;

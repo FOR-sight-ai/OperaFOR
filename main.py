@@ -12,15 +12,66 @@ import uuid
 import json
 import sys
 import importlib.resources
+from forcolate import convert_URLS_to_markdown
 
 # --- MCP Server Definition ---
 mcp = FastMCP("Demo")
 
+
+def find_numbered_folders(sandbox_id: str) -> str:
+    """Find the highest numbered folder in a given sandbox.
+    Args:
+        sandbox_id (str): The ID of the sandbox where numbered folders are searched.
+    Returns:
+        tuple: A tuple containing the path to the input folder and the next output folder.
+        If no folders are found, returns None and "step_0".
+
+    """
+
+    folder_out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sandboxes", sandbox_id)
+    if not os.path.exists(folder_out):
+        os.makedirs(folder_out)
+    # In the sandbox id folder, find the highest numbered folder
+    existing_folders = [d for d in os.listdir(folder_out) if os.path.isdir(os.path.join(folder_out, d))]
+    if existing_folders:
+        highest_folder = max(existing_folders, key=lambda x: int(x.split('_')[-1]) if '_' in x else 0)
+        folder_in = os.path.join(folder_out, highest_folder)
+        folder_next = os.path.join(folder_out,  f"step_{int(highest_folder.split('_')[-1]) + 1}")
+
+    else:
+        return folder_out,  os.path.join(folder_out, "step_0")
+
+    return folder_in, folder_next
+
+def list_folder_files(folder_out: str) -> dict:
+    """ List all output files in the sandbox directory.
+    Args:
+        folder_out (str): The path to the output folder.
+    Returns:
+        dict: A dictionary containing the list of output files.
+    """
+    # return the content of the output folder
+    output_files = []
+    for root, _, files in os.walk(folder_out):
+        for file in files:
+            file_path = os.path.join(root, file)
+            rel_path = os.path.relpath(file_path, folder_out)
+            output_files.append(rel_path)
+    return {"output_files": output_files}
+
 @mcp.tool()
-def add(a: int, b: int) -> int:
-    """Add two numbers"""
-    logger.info(f"[TOOL] add utilisé avec a={a}, b={b}")
-    return a+b
+def convert_urls_to_markdown(query: str, sandbox_id: str):
+    """
+    MCP Tool: Downloads URLs from a query and converts them to markdown files.
+    Args:
+        query (str): The search query to find URLs.
+        sandbox_id (str): The ID of the sandbox where the markdown files will be saved.
+    Returns:
+
+    """
+    folder_in, folder_out = find_numbered_folders(sandbox_id)
+    convert_URLS_to_markdown(query, folder_in, folder_out)
+    return list_folder_files(folder_out)
 
 @mcp.resource("greeting://{name}")
 def get_greeting(name: str) -> str:
@@ -59,6 +110,9 @@ async def runAgent(data):
     messages = data.get("messages")
     prompt = (data.get("prompt") or "").strip()
 
+
+    sandbox_id = (data.get("sandbox_id") or "0")
+
     async with Agent(
         model=data.get("model"),
         base_url=data.get("base_url"),
@@ -69,8 +123,9 @@ async def runAgent(data):
 
         response_acum = ""
         try:
-            #agent.messages.append(
-            #        {"role": "system", "content": "Always structure your response to the user with html code to be displayed directly in an existing <div>, styled using tailwindcss and fontawesome"})
+            agent.messages.append(
+                    {"role": "system", "content": f"Sandbox ID : {sandbox_id}"})
+                    #"Always structure your response to the user with html code to be displayed directly in an existing <div>, styled using tailwindcss and fontawesome"})
             if messages:
                 agent.messages.extend(messages[:-1])
             async for chunk in agent.run(prompt):
