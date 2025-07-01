@@ -1,9 +1,16 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "mcp-server-demo"
+name = "OperaFOR"
 version = "0.1.0"
-description = "Add your description here"
+description = "Mnimalist graphical interface for LLM and RAG agents"
 readme = "README.md"
 requires-python = ">=3.12"
+authors = [
+    { name="FOR Team", email="jonathan.sprauel@irt-saintexupery.com" }
+]
 dependencies = [
     "fastapi>=0.115.13",
     "fastmcp>=2.8.1",
@@ -16,7 +23,3 @@ dependencies = [
     "forcolate>=0.1.17",
     "numpy<2"
 ]
-
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
