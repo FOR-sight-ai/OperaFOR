@@ -73,15 +73,6 @@ jobs:
         run: |
           pyinstaller --onefile --add-data "index.html:." --hidden-import aiohttp main.py --name operafor
 
-      - name: Verify executable
-        shell: bash
-        run: |
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            ./dist/operafor.exe --help || echo "Executable test completed"
-          else
-            ./dist/operafor --help || echo "Executable test completed"
-          fi
-
       - name: Create package directory
         shell: bash
         run: |
