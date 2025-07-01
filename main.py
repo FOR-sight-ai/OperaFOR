@@ -17,6 +17,27 @@ import importlib.resources
 mcp = FastMCP("OperaFOR")
 
 
+def get_config_dir():
+    """Returns a persistent application folder compatible with all OS."""
+    if os.name == "nt":  # Windows
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "operafor")
+    else:  # macOS, Linux, others
+        return os.path.join(os.path.expanduser("~"), ".operafor")
+
+if hasattr(sys, '_MEIPASS'):
+    DATA_DIR = get_config_dir()
+    os.makedirs(DATA_DIR, exist_ok=True)
+    CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
+    CONV_FILE = os.path.join(DATA_DIR, "sandboxes.json")
+    SANDBOXES_DIR = os.path.join(DATA_DIR, "sandboxes")
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+    CONV_FILE = os.path.join(BASE_DIR, "sandboxes.json")
+    SANDBOXES_DIR = os.path.join(BASE_DIR, "sandboxes")
+
+
 def find_numbered_folders(sandbox_id: str) -> str:
     """Find the highest numbered folder in a given sandbox.
     Args:
@@ -27,7 +48,7 @@ def find_numbered_folders(sandbox_id: str) -> str:
 
     """
 
-    folder_out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sandboxes", sandbox_id)
+    folder_out = os.path.join(SANDBOXES_DIR, sandbox_id)
     if not os.path.exists(folder_out):
         os.makedirs(folder_out)
     # In the sandbox id folder, find the highest numbered folder
@@ -86,10 +107,8 @@ def search_folder(query: str, sandbox_id: str):
 # --- FastAPI App Definition ---
 app = FastAPI()
 
-# Ajout du montage pour les fichiers statiques
+# Add mount for static files
 app.mount("/static", StaticFiles(directory=os.path.dirname(os.path.abspath(__file__))), name="static")
-
-CONV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sandboxes.json")
 
 def load_all_sandboxes():
     if not os.path.exists(CONV_FILE):
@@ -110,7 +129,7 @@ def save_all_sandboxes(convs):
         json.dump(convs, f, indent=2)
 
 async def runAgent(data):
-    # On récupère l'historique complet si fourni
+    # Retrieve the full history if provided
     messages = data.get("messages")
     prompt = (data.get("prompt") or "").strip()
 
@@ -159,16 +178,16 @@ async def runAgent(data):
 
 @app.post("/agent")
 async def run_agent(request: Request):
-    """Gérer un prompt en streaming avec Agent.run()."""
+    """Handle a streaming prompt with Agent.run()."""
     data = await request.json()
     logger.info(f"/agent endpoint called. Payload: {data}")
     return StreamingResponse(runAgent(data), media_type="text/plain")
 
 @app.get("/")
 async def serve_index():
-    """Servir index.html à la racine, compatible PyInstaller."""
+    """Serve index.html at the root, compatible with PyInstaller."""
     try:
-        # Si exécuté via PyInstaller, __file__ est dans un bundle
+        # If executed via PyInstaller, __file__ is in a bundle
         if hasattr(sys, '_MEIPASS'):
             index_path = os.path.join(sys._MEIPASS, "index.html")
         else:
@@ -177,9 +196,9 @@ async def serve_index():
             content = f.read()
         return Response(content, media_type="text/html")
     except Exception as e:
-        return Response(f"Erreur lors du chargement de l'interface : {e}", status_code=500)
+        return Response(f"Error loading interface: {e}", status_code=500)
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+
 DEFAULT_CONFIG = {
     "llm": {
         "endpoint": "https://openrouter.ai/api/v1/chat/completions",
@@ -271,7 +290,7 @@ async def api_patch_sandbox(conv_id: str, request: Request):
     conv = convs.get(conv_id)
     if conv is None:
         return JSONResponse(status_code=404, content={"error": "Not found"})
-    # Autorise la modification du titre et des messages
+    # Allows modification of title and messages
     if "title" in data:
         conv["title"] = data["title"]
     if "messages" in data:
@@ -290,7 +309,7 @@ def run_fastapi():
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info", reload=False)
 
 def run_webview():
-    """Lancer pywebview sur l'URL FastAPI."""
+    """Launch pywebview on the FastAPI URL."""
     webview.create_window("OperaFOR", url=f"http://localhost:{os.getenv('PORT', '9001')}")
     webview.start()
 
@@ -303,13 +322,13 @@ logger = logging.getLogger("mcp_app")
 
 
 if __name__ == "__main__":
-    # Lancer MCP dans un thread séparé
+    # Launch MCP in a separate thread
     mcp_thread = threading.Thread(target=run_mcp, daemon=True)
     mcp_thread.start()
 
-    # Lancer FastAPI (uvicorn) dans un thread séparé
+    # Launch FastAPI (uvicorn) in a separate thread
     fastapi_thread = threading.Thread(target=run_fastapi, daemon=True)
     fastapi_thread.start()
     
-    # Lancer pywebview dans le thread principal (bloquant)
+    # Launch pywebview in the main (blocking) thread
     run_webview()

@@ -21,19 +21,44 @@ jobs:
           pip install .
       - name: Build EXE with PyInstaller
         run: |
-          pyinstaller --onefile --add-data "index.html:." main.py --name operafor
+          pyinstaller --onefile --add-data "index.html:." --hidden-import aiohttp main.py --name operafor
+      - name: Prepare release package
+        run: |
+          PACKAGE_DIR="operafor-executable-v${{ github.run_number }}-windows-x64"
+          mkdir -p "$PACKAGE_DIR"
+          cp dist/operafor.exe "$PACKAGE_DIR/"
+          cp README.md "$PACKAGE_DIR/" || echo "README.md not found"
+          cp LICENSE "$PACKAGE_DIR/" || echo "LICENSE not found"
+          cp index.html "$PACKAGE_DIR/" || echo "index.html not found"
+          cd "$PACKAGE_DIR"
+          zip -r "../${PACKAGE_DIR}.zip" .
+          cd ..
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
         with:
-          name: operafor-exe
-          path: dist/operafor.exe
+          name: operafor-windows-x64
+          path: operafor-executable-v${{ github.run_number }}-windows-x64.zip
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.run_number }}
-          name: Release ${{ github.run_number }}
+          name: OperaFOR v${{ github.run_number }}
           body: |
-            Téléchargez l'exécutable ici :
-            [operafor.exe](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            ## OperaFOR v${{ github.run_number }}
+
+            Windows executable release for OperaFOR.
+
+            ### Download
+            - [operafor-executable-v${{ github.run_number }}-windows-x64.zip](https://github.com/${{ github.repository }}/releases/download/v${{ github.run_number }}/operafor-executable-v${{ github.run_number }}-windows-x64.zip)
+
+            ### Quick Start
+            1. Download and extract the ZIP archive
+            2. Run `operafor.exe`
+            3. See `README.md` for documentation
+
+            ### What's Included
+            - OperaFOR executable
+            - Documentation
+            - index.html
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
