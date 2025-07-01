@@ -21,9 +21,19 @@ jobs:
           pip install .
       - name: Build EXE with PyInstaller
         run: |
-          pyinstaller --onefile --add-data "index.html;." main.py --name mcp-server-demo
+          pyinstaller --onefile --add-data "index.html:." main.py --name operafor
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mcp-server-demo-exe
-          path: dist/mcp-server-demo.exe
+          name: operafor-exe
+          path: dist/operafor.exe
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Release ${{ github.run_number }}
+          body: |
+            Téléchargez l'exécutable ici :
+            [operafor.exe](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -6,3 +6,6 @@ sandboxes
 .DS_Store
 .gitignore
 config copy.json
+build
+dist
+*.spec

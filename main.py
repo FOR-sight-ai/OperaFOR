@@ -14,7 +14,7 @@ import sys
 import importlib.resources
 
 # --- MCP Server Definition ---
-mcp = FastMCP("Demo")
+mcp = FastMCP("OperaFOR")
 
 
 def find_numbered_folders(sandbox_id: str) -> str:
@@ -286,12 +286,12 @@ def run_mcp():
 
 def run_fastapi():
     import uvicorn
-    port = int(os.getenv("PORT", "5000"))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, log_level="info", reload=False)
+    port = int(os.getenv("PORT", "9001"))
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info", reload=False)
 
 def run_webview():
     """Lancer pywebview sur l'URL FastAPI."""
-    webview.create_window("OperaFOR", url=f"http://localhost:{os.getenv('PORT', '5000')}")
+    webview.create_window("OperaFOR", url=f"http://localhost:{os.getenv('PORT', '9001')}")
     webview.start()
 
 # --- Logging Configuration ---
