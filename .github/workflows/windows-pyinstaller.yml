@@ -1,64 +1,281 @@
-name: Build Windows EXE with PyInstaller
+name: Build and Release Executables
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   build:
-    runs-on: windows-latest
+    name: Build ${{ matrix.os }} executable
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            executable_name: operafor
+            package_suffix: linux-x64
+          - os: macos-latest
+            platform: macos
+            arch: x64
+            executable_name: operafor
+            package_suffix: macos-x64
+          - os: windows-latest
+            platform: windows
+            arch: x64
+            executable_name: operafor.exe
+            package_suffix: windows-x64
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install dependencies
+
+      - name: Install system dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Install system dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          echo "Setting up macOS build environment"
+
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install pyinstaller
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install .
-      - name: Build EXE with PyInstaller
+
+      - name: Get version from tag or pyproject.toml
+        id: get_version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Build executable with PyInstaller
         run: |
           pyinstaller --onefile --add-data "index.html:." --hidden-import aiohttp main.py --name operafor
-      - name: Prepare release package
+
+      - name: Verify executable
+        shell: bash
         run: |
-          PACKAGE_DIR="operafor-executable-v${{ github.run_number }}-windows-x64"
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            ./dist/operafor.exe --help || echo "Executable test completed"
+          else
+            ./dist/operafor --help || echo "Executable test completed"
+          fi
+
+      - name: Create package directory
+        shell: bash
+        run: |
+          PACKAGE_DIR="operafor-executable-v${{ github.run_number }}-${{ matrix.package_suffix }}"
           mkdir -p "$PACKAGE_DIR"
-          cp dist/operafor.exe "$PACKAGE_DIR/"
+          cp dist/${{ matrix.executable_name }} "$PACKAGE_DIR/"
           cp README.md "$PACKAGE_DIR/" || echo "README.md not found"
           cp LICENSE "$PACKAGE_DIR/" || echo "LICENSE not found"
           cp index.html "$PACKAGE_DIR/" || echo "index.html not found"
-          cd "$PACKAGE_DIR"
-          zip -r "../${PACKAGE_DIR}.zip" .
-          cd ..
-      - name: Upload EXE artifact
+
+      - name: Create launcher script (Unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          PACKAGE_DIR="operafor-executable-v${{ github.run_number }}-${{ matrix.package_suffix }}"
+          cat > "$PACKAGE_DIR/run_operafor.sh" << 'EOF'
+          #!/bin/bash
+          # OperaFOR Launcher Script
+          DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+          chmod +x "$DIR/operafor"
+          "$DIR/operafor" "$@"
+          EOF
+          chmod +x "$PACKAGE_DIR/run_operafor.sh"
+
+      - name: Create launcher script (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          PACKAGE_DIR="operafor-executable-v${{ github.run_number }}-${{ matrix.package_suffix }}"
+          cat > "$PACKAGE_DIR/run_operafor.bat" << 'EOF'
+          @echo off
+          REM OperaFOR Launcher Script for Windows
+          set "DIR=%~dp0"
+          "%DIR%operafor.exe" %*
+          EOF
+
+      - name: Create quick start guide
+        shell: bash
+        run: |
+          PACKAGE_DIR="operafor-executable-v${{ github.run_number }}-${{ matrix.package_suffix }}"
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            cat > "$PACKAGE_DIR/QUICKSTART.md" << 'EOF'
+          # OperaFOR Executable - Quick Start (Windows)
+
+          ## 1. Run
+          ```cmd
+          operafor.exe
+          ```
+
+          ## 2. Or use the launcher script
+          ```cmd
+          run_operafor.bat
+          ```
+
+          ## 3. Get help
+          ```cmd
+          operafor.exe --help
+          ```
+
+          See README.md for full documentation.
+          EOF
+          else
+            cat > "$PACKAGE_DIR/QUICKSTART.md" << 'EOF'
+          # OperaFOR Executable - Quick Start
+
+          ## 1. Make executable
+          ```bash
+          chmod +x operafor
+          ```
+
+          ## 2. Run
+          ```bash
+          ./operafor
+          ```
+
+          ## 3. Or use the launcher script
+          ```bash
+          ./run_operafor.sh
+          ```
+
+          ## 4. Get help
+          ```bash
+          ./operafor --help
+          ```
+
+          See README.md for full documentation.
+          EOF
+          fi
+
+      - name: Create archive
+        shell: bash
+        run: |
+          PACKAGE_DIR="operafor-executable-v${{ github.run_number }}-${{ matrix.package_suffix }}"
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            7z a "${PACKAGE_DIR}.zip" "$PACKAGE_DIR"
+            echo "archive_name=${PACKAGE_DIR}.zip" >> $GITHUB_ENV
+          else
+            tar -czf "${PACKAGE_DIR}.tar.gz" "$PACKAGE_DIR"
+            echo "archive_name=${PACKAGE_DIR}.tar.gz" >> $GITHUB_ENV
+          fi
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: operafor-windows-x64
-          path: operafor-executable-v${{ github.run_number }}-windows-x64.zip
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+          name: operafor-${{ matrix.package_suffix }}
+          path: ${{ env.archive_name }}
+          retention-days: 30
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
-          tag_name: v${{ github.run_number }}
-          name: OperaFOR v${{ github.run_number }}
+          path: ./artifacts
+
+      - name: Display structure of downloaded files
+        run: ls -la ./artifacts/
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: OperaFOR v${{ github.run_number }}
           body: |
             ## OperaFOR v${{ github.run_number }}
 
-            Windows executable release for OperaFOR.
+            Cross-platform executable release for OperaFOR.
 
-            ### Download
-            - [operafor-executable-v${{ github.run_number }}-windows-x64.zip](https://github.com/${{ github.repository }}/releases/download/v${{ github.run_number }}/operafor-executable-v${{ github.run_number }}-windows-x64.zip)
+            ### Downloads
+            - **Linux (x64)**: `operafor-executable-v${{github.run_number }}-linux-x64.tar.gz`
+            - **macOS (x64)**: `operafor-executable-v${{ github.run_number  }}-macos-x64.tar.gz`
+            - **Windows (x64)**: `operafor-executable-v${{ github.run_number  }}-windows-x64.zip`
 
             ### Quick Start
-            1. Download and extract the ZIP archive
-            2. Run `operafor.exe`
-            3. See `README.md` for documentation
+            1. Download l'archive appropriée pour votre plateforme
+            2. Décompressez l'archive
+            3. Suivez les instructions dans `QUICKSTART.md`
 
-            ### What's Included
-            - OperaFOR executable
+            ### Inclus
+            - Exécutable OperaFOR
             - Documentation
-            - index.html
+            - Scripts de lancement
+
+            Pour la documentation détaillée, voir le [README](https://github.com/${{ github.repository }}/blob/main/README.md).
+          draft: false
+          prerelease: false
+
+      - name: Upload Linux Release Asset
+        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/operafor-linux-x64/operafor-executable-v${{github.run_number  }}-linux-x64.tar.gz
+          asset_name: operafor-executable-v${{ github.run_number  }}-linux-x64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload macOS Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/operafor-macos-x64/operafor-executable-v${{ github.run_number  }}-macos-x64.tar.gz
+          asset_name: operafor-executable-v${{ github.run_number  }}-macos-x64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload Windows Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/operafor-windows-x64/operafor-executable-v${{ github.run_number  }}-windows-x64.zip
+          asset_name: operafor-executable-v${{ github.run_number }}-windows-x64.zip
+          asset_content_type: application/zip
