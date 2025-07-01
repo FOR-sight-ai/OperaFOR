@@ -12,7 +12,6 @@ import uuid
 import json
 import sys
 import importlib.resources
-from forcolate import convert_URLS_to_markdown
 
 # --- MCP Server Definition ---
 mcp = FastMCP("Demo")
@@ -69,15 +68,20 @@ def convert_urls_to_markdown(query: str, sandbox_id: str):
     Returns:
 
     """
+    from forcolate import convert_URLS_to_markdown
+
     folder_in, folder_out = find_numbered_folders(sandbox_id)
     convert_URLS_to_markdown(query, folder_in, folder_out)
     return list_folder_files(folder_out)
 
-@mcp.resource("greeting://{name}")
-def get_greeting(name: str) -> str:
-    """Get a personalized greeting"""
-    logger.info(f"[RESOURCE] get_greeting utilisé avec name={name}")
-    return f"Hello, {name}!"
+@mcp.tool()
+def search_folder(query: str, sandbox_id: str):
+    from forcolate import search_folder
+    folder_in, folder_out = find_numbered_folders(sandbox_id)
+    file_paths = search_folder(query, folder_in, folder_out)
+    print(file_paths)
+    return list_folder_files(folder_out)
+
 
 # --- FastAPI App Definition ---
 app = FastAPI()

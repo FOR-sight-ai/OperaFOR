@@ -211,7 +211,22 @@
     </div>
     <div id="sidebar-overlay" class="sidebar-overlay"></div>
     <script>
-        const defaultConfig = `{}`;
+        const defaultConfig = `{
+  "llm": {
+    "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+    "model": "deepseek/deepseek-chat-v3-0324:free",
+    "apiKey": "APIKEY",
+    "servers": [
+      {
+        "type": "http",
+        "config": {
+          "url": "http://localhost:9000/mcp"
+        }
+      }
+    ]
+  }
+
+}`;
         // Gestion de la configuration via config.json côté serveur
         async function loadConfig() {
             try {

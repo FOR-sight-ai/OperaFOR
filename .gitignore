@@ -3,3 +3,6 @@ config.json
 sandboxes.json
 mcp_server_demo.egg-info
 sandboxes
+.DS_Store
+.gitignore
+config copy.json
