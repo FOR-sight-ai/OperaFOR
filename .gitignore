@@ -8,5 +8,4 @@ sandboxes
 config copy.json
 build
 dist
-*.spec
 OperaFOR.egg-info
