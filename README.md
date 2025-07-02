@@ -47,6 +47,11 @@ A standalone Windows executable is available on the [GitHub Releases page](https
 - `main.py`: FastAPI server, sandboxes management, MCP integration, pywebview launcher.
 - `index.html`: unique, responsive, task-oriented user interface.
 
+
+## Acknowledgement
+
+This project received funding from the French ”IA Cluster” program within the Artificial and Natural Intelligence Toulouse Institute (ANITI) and from the "France 2030" program within IRT Saint Exupery. The authors gratefully acknowledge the support of the FOR projects.
+
 ## 📜 License
 
 This project is open source, under the MIT license.

@@ -14,6 +14,27 @@ import sys
 from datetime import datetime
 
 
+def get_config_dir():
+    """Returns a persistent application folder compatible with all OS."""
+    if os.name == "nt":  # Windows
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "operafor")
+    else:  # macOS, Linux, others
+        return os.path.join(os.path.expanduser("~"), ".operafor")
+
+if hasattr(sys, '_MEIPASS'):
+    DATA_DIR = get_config_dir()
+    os.makedirs(DATA_DIR, exist_ok=True)
+    CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
+    CONV_FILE = os.path.join(DATA_DIR, "sandboxes.json")
+    SANDBOXES_DIR = os.path.join(DATA_DIR, "sandboxes")
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+    CONV_FILE = os.path.join(BASE_DIR, "sandboxes.json")
+    SANDBOXES_DIR = os.path.join(BASE_DIR, "sandboxes")
+
+
 # --- git utils  ---
 
 import os
@@ -21,8 +42,6 @@ import json
 from datetime import datetime
 from dulwich import porcelain
 from dulwich.repo import Repo
-from dulwich.objects import Blob, Tree, Commit
-from dulwich.index import build_index_from_tree
 
 def init_or_get_repo(sandbox_path: str) -> Repo:
     """Initialize git repository in sandbox folder if it doesn't exist, or get existing repo.
@@ -87,7 +106,7 @@ def commit_sandbox_changes(sandbox_path: str, messages: list, commit_message: st
         return ""
 
 def revert_sandbox_to_commit(sandbox_path: str, commit_hash: str) -> bool:
-    """Revert the sandbox to a specific commit.
+    """Revert the sandbox to a specific commit and update conversation.json and sandboxes.json accordingly.
     Args:
         sandbox_path (str): Path to the sandbox folder
         commit_hash (str): The commit hash to revert to
@@ -97,6 +116,24 @@ def revert_sandbox_to_commit(sandbox_path: str, commit_hash: str) -> bool:
     try:
         # Use porcelain reset which properly handles file checkout
         porcelain.reset(sandbox_path, "hard", commit_hash)
+
+        # Update sandboxes.json: update messages and commits for this sandbox
+        from pathlib import Path
+        if CONV_FILE.exists():
+            with open(CONV_FILE, 'r') as f:
+                sandboxes = json.load(f)
+            # Find the sandbox id from the path
+            sandbox_id = os.path.basename(sandbox_path)
+            conv = sandboxes.get(sandbox_id)
+            if conv is not None:
+                # Truncate commits up to and including the reverted commit
+                commits = conv.get("commits", [])
+                idx = next((i for i, c in enumerate(commits) if c["hash"] == commit_hash), None)
+                if idx is not None:
+                    conv["commits"] = commits[:idx+1]
+                sandboxes[sandbox_id] = conv
+                with open(CONV_FILE, 'w') as f:
+                    json.dump(sandboxes, f, indent=2)
         return True
     except Exception as e:
         print(f"Error reverting to commit {commit_hash}: {e}")
@@ -106,29 +143,9 @@ def revert_sandbox_to_commit(sandbox_path: str, commit_hash: str) -> bool:
 mcp = FastMCP("OperaFOR")
 
 
-def get_config_dir():
-    """Returns a persistent application folder compatible with all OS."""
-    if os.name == "nt":  # Windows
-        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-        return os.path.join(base, "operafor")
-    else:  # macOS, Linux, others
-        return os.path.join(os.path.expanduser("~"), ".operafor")
-
-if hasattr(sys, '_MEIPASS'):
-    DATA_DIR = get_config_dir()
-    os.makedirs(DATA_DIR, exist_ok=True)
-    CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
-    CONV_FILE = os.path.join(DATA_DIR, "sandboxes.json")
-    SANDBOXES_DIR = os.path.join(DATA_DIR, "sandboxes")
-else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
-    CONV_FILE = os.path.join(BASE_DIR, "sandboxes.json")
-    SANDBOXES_DIR = os.path.join(BASE_DIR, "sandboxes")
-
 
 @mcp.tool()
-def list_folder_files(folder_out: str) -> dict:
+def list_sandbox_files(sandbox_id: str) -> dict:
     """ List all output files in the sandbox directory.
     Args:
         folder_out (str): The path to the output folder.
@@ -136,15 +153,42 @@ def list_folder_files(folder_out: str) -> dict:
         dict: A dictionary containing the list of output files.
     """
     # return the content of the output folder
+    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
     output_files = []
-    for root, _, files in os.walk(folder_out):
+    for root, _, files in os.walk(sandbox_path):
         for file in files:
             file_path = os.path.join(root, file)
-            rel_path = os.path.relpath(file_path, folder_out)
-            output_files.append(rel_path)
-    return {"output_files": output_files}
+            rel_path = os.path.relpath(file_path, sandbox_path)
+
+            # ignore .git directory and conversation.json
+            if rel_path.startswith('.git/') or rel_path == 'conversation.json':
+                continue
+
+            # Ensure we only return files, not directories
+            if os.path.isfile(file_path):
+                output_files.append(rel_path)
+    return {"files in the sandbox": output_files}
 
 
+@mcp.tool()
+def read_file_sandbox(sandbox_id: str, file_name:str) -> dict:
+    """ Read a file from the sandbox directory.
+    Args:
+        sandbox_id (str): The ID of the sandbox.
+        file_name (str): The name of the file to read.
+    Returns:
+        dict: A dictionary containing the file content.
+    """
+    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    file_path = os.path.join(sandbox_path, file_name)
+    
+    if not os.path.exists(file_path):
+        return {"error": "File not found"}
+
+    with open(file_path, 'r') as f:
+        content = f.read()
+    
+    return {"file_content": content}
 
 
 # --- FastAPI App Definition ---
@@ -228,9 +272,6 @@ async def runAgent(data):
     # Create commit message based on the last user message and response
     user_prompt = prompt if prompt else "Agent interaction"
     commit_message = f"Agent response to: {user_prompt[:50]}..."
-    
-    # Initialize or get the git repository for this sandbox
-    repo = init_or_get_repo(sandbox_path)
 
     # Write the conversation to a JSON file in the sandbox
     conversation_file = os.path.join(sandbox_path, "conversation.json")
@@ -363,6 +404,11 @@ async def api_delete_sandbox(conv_id: str):
         return JSONResponse(status_code=404, content={"error": "Not found"})
     del convs[conv_id]
     save_all_sandboxes(convs)
+    # Suppression du dossier sandbox correspondant
+    import shutil
+    sandbox_path = os.path.join(SANDBOXES_DIR, conv_id)
+    if os.path.exists(sandbox_path):
+        shutil.rmtree(sandbox_path)
     return {"status": "deleted"}
 
 @app.patch("/sandboxes/{conv_id}")
@@ -376,7 +422,18 @@ async def api_patch_sandbox(conv_id: str, request: Request):
     if "title" in data:
         conv["title"] = data["title"]
     if "messages" in data:
-        conv["messages"] = data["messages"]
+        old_messages = conv.get("messages", [])
+        new_messages = data["messages"]
+        conv["messages"] = new_messages
+        # Si des messages ont été supprimés, revert le sandbox au commit correspondant
+        if len(new_messages) < len(old_messages):
+            commits = conv.get("commits", [])
+            # On cherche le commit dont le step correspond au dernier message restant
+            target_step = len(new_messages) - 1
+            target_commit = next((c for c in commits if c["step"] == target_step), None)
+            if target_commit:
+                sandbox_path = os.path.join(SANDBOXES_DIR, conv_id)
+                revert_sandbox_to_commit(sandbox_path, target_commit["hash"])
     convs[conv_id] = conv
     save_all_sandboxes(convs)
     return {"status": "ok"}
