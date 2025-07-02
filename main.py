@@ -12,6 +12,14 @@ import uuid
 import json
 import sys
 import importlib.resources
+import time
+from datetime import datetime
+from git_utils import (
+    init_or_get_repo,
+    write_conversation_json,
+    commit_sandbox_changes,
+    revert_sandbox_to_commit
+)
 
 # --- MCP Server Definition ---
 mcp = FastMCP("OperaFOR")
@@ -79,6 +87,8 @@ def list_folder_files(folder_out: str) -> dict:
             output_files.append(rel_path)
     return {"output_files": output_files}
 
+
+
 @mcp.tool()
 def convert_urls_to_markdown(query: str, sandbox_id: str):
     """
@@ -93,6 +103,18 @@ def convert_urls_to_markdown(query: str, sandbox_id: str):
 
     folder_in, folder_out = find_numbered_folders(sandbox_id)
     convert_URLS_to_markdown(query, folder_in, folder_out)
+    
+    # Commit the changes to git
+    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    commit_message = f"Convert URLs to markdown: {query[:50]}..."
+    
+    # Get current conversation for this sandbox
+    convs = load_all_sandboxes()
+    conv = convs.get(sandbox_id, {"messages": []})
+    messages = conv.get("messages", [])
+    
+    commit_hash = commit_sandbox_changes(sandbox_path, messages, commit_message)
+    
     return list_folder_files(folder_out)
 
 @mcp.tool()
@@ -101,6 +123,18 @@ def search_folder(query: str, sandbox_id: str):
     folder_in, folder_out = find_numbered_folders(sandbox_id)
     file_paths = search_folder(query, folder_in, folder_out)
     print(file_paths)
+    
+    # Commit the changes to git
+    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    commit_message = f"Search folder results: {query[:50]}..."
+    
+    # Get current conversation for this sandbox
+    convs = load_all_sandboxes()
+    conv = convs.get(sandbox_id, {"messages": []})
+    messages = conv.get("messages", [])
+    
+    commit_hash = commit_sandbox_changes(sandbox_path, messages, commit_message)
+    
     return list_folder_files(folder_out)
 
 
@@ -174,6 +208,30 @@ async def runAgent(data):
     if conv is None:
         conv = {"id": sandbox_id, "messages": []}
     conv.setdefault("messages", []).append(new_message)
+    
+    # Git commit functionality
+    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    os.makedirs(sandbox_path, exist_ok=True)
+    
+    # Get all messages for this conversation
+    all_messages = conv.get("messages", [])
+    
+    # Create commit message based on the last user message and response
+    user_prompt = prompt if prompt else "Agent interaction"
+    commit_message = f"Agent response to: {user_prompt[:50]}..."
+    
+    # Commit changes and get hash
+    commit_hash = commit_sandbox_changes(sandbox_path, all_messages, commit_message)
+    
+    # Store commit hash in sandbox data
+    if commit_hash:
+        conv.setdefault("commits", []).append({
+            "step": len(all_messages) - 1,  # Index of the assistant message
+            "hash": commit_hash,
+            "message": commit_message,
+            "timestamp": datetime.now().isoformat()
+        })
+    
     convs[sandbox_id] = conv
     save_all_sandboxes(convs)
 
@@ -305,6 +363,56 @@ async def api_patch_sandbox(conv_id: str, request: Request):
     convs[conv_id] = conv
     save_all_sandboxes(convs)
     return {"status": "ok"}
+
+@app.get("/sandboxes/{conv_id}/commits")
+async def api_get_sandbox_commits(conv_id: str):
+    """Get the commit history for a sandbox."""
+    convs = load_all_sandboxes()
+    conv = convs.get(conv_id)
+    if conv is None:
+        return JSONResponse(status_code=404, content={"error": "Sandbox not found"})
+    
+    commits = conv.get("commits", [])
+    return {"commits": commits}
+
+@app.post("/sandboxes/{conv_id}/revert")
+async def api_revert_sandbox(conv_id: str, request: Request):
+    """Revert a sandbox to a specific commit."""
+    data = await request.json()
+    commit_hash = data.get("commit_hash")
+    step = data.get("step")
+    
+    if not commit_hash and step is None:
+        return JSONResponse(status_code=400, content={"error": "Either commit_hash or step must be provided"})
+    
+    convs = load_all_sandboxes()
+    conv = convs.get(conv_id)
+    if conv is None:
+        return JSONResponse(status_code=404, content={"error": "Sandbox not found"})
+    
+    # If step is provided, find the corresponding commit hash
+    if step is not None and commit_hash is None:
+        commits = conv.get("commits", [])
+        target_commit = next((c for c in commits if c["step"] == step), None)
+        if not target_commit:
+            return JSONResponse(status_code=404, content={"error": "Commit for step not found"})
+        commit_hash = target_commit["hash"]
+    
+    # Revert the sandbox
+    sandbox_path = os.path.join(SANDBOXES_DIR, conv_id)
+    if not os.path.exists(sandbox_path):
+        return JSONResponse(status_code=404, content={"error": "Sandbox folder not found"})
+    
+    success = revert_sandbox_to_commit(sandbox_path, commit_hash)
+    if success:
+        # Also update the messages to match the reverted state
+        if step is not None:
+            conv["messages"] = conv["messages"][:step+1]
+            convs[conv_id] = conv
+            save_all_sandboxes(convs)
+        return {"status": "reverted", "commit_hash": commit_hash}
+    else:
+        return JSONResponse(status_code=500, content={"error": "Failed to revert sandbox"})
 
 # --- Server Launchers ---
 def run_mcp():

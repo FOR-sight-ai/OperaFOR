@@ -21,4 +21,5 @@ dependencies = [
     "pyinstaller",
     "forcolate>=0.1.18",
     "aiohttp",
+    "dulwich>=0.21.7",
 ]
