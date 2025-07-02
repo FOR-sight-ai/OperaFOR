@@ -182,7 +182,7 @@
                         style="display:none;">
                         <div
                             class="bg-white rounded-lg shadow-lg p-6 w-full max-w-sm mx-auto flex flex-col items-center">
-                            <h3 class="text-lg font-semibold mb-4">Titre du Sandbox</h3>
+                            <h3 class="text-lg font-semibold mb-4">Sandbox Title</h3>
                             <input id="sandboxTitleInput" class="w-full border border-gray-300 rounded p-2 mb-4"
                                 placeholder="Titre...">
                             <div class="flex space-x-2">
@@ -203,7 +203,7 @@
                             placeholder="Votre message..."></textarea>
                         <button id="sendBtn"
                             class="ml-2 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-2xl shadow flex items-center"><i
-                                class="fas fa-paper-plane mr-2"></i>Envoyer</button>
+                                class="fas fa-paper-plane mr-2"></i>Send</button>
                     </div>
                 </div>
             </main>
@@ -420,14 +420,8 @@
             currentConvId = convId;
             currentConvMessages = conv.messages || [];
             renderHistoryList(await fetchSandboxes());
-            // SUPPRIMÉ : affichage du chat
             document.getElementById('currentConvTitle').textContent = conv.title || '';
             renderTimeline(); // Met à jour la timeline
-        }
-        // Gestion de l'historique du chat
-        function addMessage(role, text) {
-            // Ne fait plus rien côté chat, juste timeline
-            renderTimeline(); // Met à jour la timeline après chaque message
         }
 
         function updateLastAssistantMessage(text) {
@@ -491,11 +485,13 @@
                 model: llm.model,
                 base_url: llm.base_url || llm.endpoint, // compatibility
                 api_key: llm.apiKey,
-                convId: currentConvId,
+                sandbox_id: currentConvId,
                 servers: config.servers || [
                     {
                         type: "http",
-                        config: { url: "http://localhost:9000/mcp" }
+                        config: {
+                            url: "http://localhost:9000/mcp"
+                        }
                     }
                 ],
                 prompt: userInput,

@@ -135,6 +135,7 @@ async def runAgent(data):
 
 
     sandbox_id = (data.get("sandbox_id") or "0")
+    print(f"Config : {data}")
 
     async with Agent(
         model=data.get("model"),
@@ -166,14 +167,14 @@ async def runAgent(data):
             print(f"\nError during agent run: {e}\n{tb_str}", flush=True)
     
     # saving in conversation
-    convId = (data.get("convId") or "0")
+    sandbox_id = (data.get("sandbox_id") or "0")
     new_message = {"role": "assistant", "content": response_acum}
     convs = load_all_sandboxes()
-    conv = convs.get(convId)
+    conv = convs.get(sandbox_id)
     if conv is None:
-        conv = {"id": convId, "messages": []}
+        conv = {"id": sandbox_id, "messages": []}
     conv.setdefault("messages", []).append(new_message)
-    convs[convId] = conv
+    convs[sandbox_id] = conv
     save_all_sandboxes(convs)
 
 @app.post("/agent")
@@ -204,7 +205,13 @@ DEFAULT_CONFIG = {
         "endpoint": "https://openrouter.ai/api/v1/chat/completions",
         "model": "deepseek/deepseek-chat-v3-0324:free",
         "apiKey": "your_api_key"
-    }
+    },
+    "servers": [
+        {
+            "type": "http",
+            "url": "http://localhost:9000/mcp"
+        }
+    ]
 }
 
 @app.get("/config.json")

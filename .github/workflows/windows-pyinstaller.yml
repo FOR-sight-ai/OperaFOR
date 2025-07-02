@@ -15,11 +15,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            platform: linux
-            arch: x64
-            executable_name: operafor
-            package_suffix: linux-x64
           - os: macos-latest
             platform: macos
             arch: x64
@@ -81,86 +76,7 @@ jobs:
           cp dist/${{ matrix.executable_name }} "$PACKAGE_DIR/"
           cp README.md "$PACKAGE_DIR/" || echo "README.md not found"
           cp LICENSE "$PACKAGE_DIR/" || echo "LICENSE not found"
-          cp index.html "$PACKAGE_DIR/" || echo "index.html not found"
 
-      - name: Create launcher script (Unix)
-        if: matrix.os != 'windows-latest'
-        shell: bash
-        run: |
-          PACKAGE_DIR="operafor-executable-v${{ github.run_number }}-${{ matrix.package_suffix }}"
-          cat > "$PACKAGE_DIR/run_operafor.sh" << 'EOF'
-          #!/bin/bash
-          # OperaFOR Launcher Script
-          DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-          chmod +x "$DIR/operafor"
-          "$DIR/operafor" "$@"
-          EOF
-          chmod +x "$PACKAGE_DIR/run_operafor.sh"
-
-      - name: Create launcher script (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: bash
-        run: |
-          PACKAGE_DIR="operafor-executable-v${{ github.run_number }}-${{ matrix.package_suffix }}"
-          cat > "$PACKAGE_DIR/run_operafor.bat" << 'EOF'
-          @echo off
-          REM OperaFOR Launcher Script for Windows
-          set "DIR=%~dp0"
-          "%DIR%operafor.exe" %*
-          EOF
-
-      - name: Create quick start guide
-        shell: bash
-        run: |
-          PACKAGE_DIR="operafor-executable-v${{ github.run_number }}-${{ matrix.package_suffix }}"
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            cat > "$PACKAGE_DIR/QUICKSTART.md" << 'EOF'
-          # OperaFOR Executable - Quick Start (Windows)
-
-          ## 1. Run
-          ```cmd
-          operafor.exe
-          ```
-
-          ## 2. Or use the launcher script
-          ```cmd
-          run_operafor.bat
-          ```
-
-          ## 3. Get help
-          ```cmd
-          operafor.exe --help
-          ```
-
-          See README.md for full documentation.
-          EOF
-          else
-            cat > "$PACKAGE_DIR/QUICKSTART.md" << 'EOF'
-          # OperaFOR Executable - Quick Start
-
-          ## 1. Make executable
-          ```bash
-          chmod +x operafor
-          ```
-
-          ## 2. Run
-          ```bash
-          ./operafor
-          ```
-
-          ## 3. Or use the launcher script
-          ```bash
-          ./run_operafor.sh
-          ```
-
-          ## 4. Get help
-          ```bash
-          ./operafor --help
-          ```
-
-          See README.md for full documentation.
-          EOF
-          fi
 
       - name: Create archive
         shell: bash
@@ -221,7 +137,6 @@ jobs:
             Cross-platform executable release for OperaFOR.
 
             ### Downloads
-            - **Linux (x64)**: `operafor-executable-v${{github.run_number }}-linux-x64.tar.gz`
             - **macOS (x64)**: `operafor-executable-v${{ github.run_number  }}-macos-x64.tar.gz`
             - **Windows (x64)**: `operafor-executable-v${{ github.run_number  }}-windows-x64.zip`
 
@@ -230,24 +145,10 @@ jobs:
             2. Décompressez l'archive
             3. Suivez les instructions dans `QUICKSTART.md`
 
-            ### Inclus
-            - Exécutable OperaFOR
-            - Documentation
-            - Scripts de lancement
-
             Pour la documentation détaillée, voir le [README](https://github.com/${{ github.repository }}/blob/main/README.md).
           draft: false
           prerelease: false
 
-      - name: Upload Linux Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/operafor-linux-x64/operafor-executable-v${{github.run_number  }}-linux-x64.tar.gz
-          asset_name: operafor-executable-v${{ github.run_number  }}-linux-x64.tar.gz
-          asset_content_type: application/gzip
 
       - name: Upload macOS Release Asset
         uses: actions/upload-release-asset@v1
