@@ -771,6 +771,7 @@
                 };
                 if (revertBtn) revertBtn.onclick = async function () {
                     menu.classList.add('hidden');
+                    if (!confirm('Delete all the steps below ?')) return;
                     // Met à jour l'historique local et backend
                     currentConvMessages = keepMessagesUpToStep(currentConvMessages, idx);
                     await patchMessagesOnBackend();
