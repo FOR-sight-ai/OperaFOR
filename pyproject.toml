@@ -19,6 +19,6 @@ dependencies = [
     "pywebview>=5.4",
     "uvicorn>=0.34.3",
     "pyinstaller",
-    "forcolate>=0.1.18",
     "aiohttp",
+    "dulwich>=0.21.7",
 ]
