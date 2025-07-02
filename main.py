@@ -117,23 +117,23 @@ def revert_sandbox_to_commit(sandbox_path: str, commit_hash: str) -> bool:
         # Use porcelain reset which properly handles file checkout
         porcelain.reset(sandbox_path, "hard", commit_hash)
 
-        # Update sandboxes.json: update messages and commits for this sandbox
+        # Update sandboxes.json: update commits for this sandbox
         from pathlib import Path
-        if CONV_FILE.exists():
-            with open(CONV_FILE, 'r') as f:
-                sandboxes = json.load(f)
-            # Find the sandbox id from the path
-            sandbox_id = os.path.basename(sandbox_path)
-            conv = sandboxes.get(sandbox_id)
-            if conv is not None:
-                # Truncate commits up to and including the reverted commit
-                commits = conv.get("commits", [])
-                idx = next((i for i, c in enumerate(commits) if c["hash"] == commit_hash), None)
-                if idx is not None:
-                    conv["commits"] = commits[:idx+1]
-                sandboxes[sandbox_id] = conv
-                with open(CONV_FILE, 'w') as f:
-                    json.dump(sandboxes, f, indent=2)
+        with open(CONV_FILE, 'r') as f:
+            sandboxes = json.load(f)
+        # Find the sandbox id from the path
+        sandbox_id = os.path.basename(sandbox_path)
+        conv = sandboxes.get(sandbox_id)
+        if conv is not None:
+            # Truncate commits up to and including the reverted commit
+            commits = conv.get("commits", [])
+            idx = next((i for i, c in enumerate(commits) if c["hash"] == commit_hash), None)
+            print(f"Reverting to commit {commit_hash} for sandbox {sandbox_id}, found at index {idx}")
+            if idx is not None:
+                conv["commits"] = commits[:idx+1]
+            sandboxes[sandbox_id] = conv
+            with open(CONV_FILE, 'w') as f:
+                json.dump(sandboxes, f, indent=2)
         return True
     except Exception as e:
         print(f"Error reverting to commit {commit_hash}: {e}")
@@ -421,21 +421,26 @@ async def api_patch_sandbox(conv_id: str, request: Request):
     # Allows modification of title and messages
     if "title" in data:
         conv["title"] = data["title"]
+    update_commit = False
     if "messages" in data:
         old_messages = conv.get("messages", [])
         new_messages = data["messages"]
         conv["messages"] = new_messages
         # Si des messages ont été supprimés, revert le sandbox au commit correspondant
         if len(new_messages) < len(old_messages):
-            commits = conv.get("commits", [])
-            # On cherche le commit dont le step correspond au dernier message restant
-            target_step = len(new_messages) - 1
-            target_commit = next((c for c in commits if c["step"] == target_step), None)
-            if target_commit:
-                sandbox_path = os.path.join(SANDBOXES_DIR, conv_id)
-                revert_sandbox_to_commit(sandbox_path, target_commit["hash"])
+            update_commit = True
+
     convs[conv_id] = conv
     save_all_sandboxes(convs)
+
+    if update_commit:
+        commits = conv.get("commits", [])
+        # On cherche le commit dont le step correspond au dernier message restant
+        target_step = len(new_messages) - 1
+        target_commit = next((c for c in commits if c["step"] == target_step), None)
+        if target_commit:
+            sandbox_path = os.path.join(SANDBOXES_DIR, conv_id)
+            revert_sandbox_to_commit(sandbox_path, target_commit["hash"])
     return {"status": "ok"}
 
 @app.get("/sandboxes/{conv_id}/commits")
