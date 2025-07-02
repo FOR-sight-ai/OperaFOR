@@ -1,6 +1,7 @@
 import os
 import threading
 import traceback
+from typing import Any, Dict, List
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -146,11 +147,11 @@ mcp = FastMCP("OperaFOR")
 
 @mcp.tool()
 def list_sandbox_files(sandbox_id: str) -> dict:
-    """ List all output files in the sandbox directory.
+    """ List all files in the sandbox directory.
     Args:
-        folder_out (str): The path to the output folder.
+        sandbox_id (str): The ID of the sandbox.
     Returns:
-        dict: A dictionary containing the list of output files.
+        dict: A dictionary containing the list of files in the sandbox.
     """
     # return the content of the output folder
     sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
@@ -167,6 +168,7 @@ def list_sandbox_files(sandbox_id: str) -> dict:
             # Ensure we only return files, not directories
             if os.path.isfile(file_path):
                 output_files.append(rel_path)
+    print(f"Files in sandbox {sandbox_id}: {output_files}")
     return {"files in the sandbox": output_files}
 
 
@@ -189,6 +191,280 @@ def read_file_sandbox(sandbox_id: str, file_name:str) -> dict:
         content = f.read()
     
     return {"file_content": content}
+
+
+@mcp.tool()
+def save_file_sandbox(sandbox_id: str, file_name: str, content: str) -> bool:
+    """Write content to a file in the sandbox.
+
+    Args:
+        sandbox_id: The ID of the sandbox.
+        file_name: The name of the file to write to.
+        content: Content to write to the file
+
+    Returns:
+        True if the file was written successfully
+    """
+    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    file_path = os.path.join(sandbox_path, file_name)
+
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    with open(file_path, 'w') as f:
+        f.write(content)
+
+    return True
+
+
+@mcp.tool()
+def append_file_sandbox(sandbox_id: str, file_name: str, content: str) -> bool:
+    """Append content to a file in the sandbox.
+
+    Args:
+        sandbox_id: The ID of the sandbox.
+        file_name: The name of the file to append to.
+        content: Content to append to the file.
+
+    Returns:
+        True if the file was written successfully
+    """
+    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    file_path = os.path.join(sandbox_path, file_name)
+
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    with open(file_path, 'a') as f:
+        f.write(content)
+
+    return True
+
+
+@mcp.tool()
+def delete_this_file_sandbox(sandbox_id: str, file_name: str) -> bool:
+    """Delete a file in the sandbox.
+
+    Args:
+        sandbox_id: The ID of the sandbox.
+        file_name: The name of the file to delete.
+
+    Returns:
+        True if the file was deleted successfully
+    """
+    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    file_path = os.path.join(sandbox_path, file_name)
+
+    try:
+        os.remove(file_path)
+        return True
+    except Exception as e:
+        print(f"Error deleting file {file_path}: {e}")
+        return False
+
+@mcp.tool()
+def edit_file_sandbox(
+    sandbox_id: str,
+    file_path: str,
+    edits: List[Dict[str, str]],
+    dry_run: bool = False,
+    options: Dict[str, Any] = None,
+) -> Dict[str, Any]:
+    """Make selective edits to files while preserving formatting.
+
+    Features:
+        - Line-based and multi-line content matching
+        - Whitespace normalization with indentation preservation
+        - Multiple simultaneous edits with correct positioning
+        - Smart detection of already-applied edits
+        - Git-style diff output with context
+        - Preview changes with dry run mode
+
+    Args:
+        sandbox_id: ID of the sandbox to edit
+        file_path: Path to the file to edit (relative to project directory)
+        edits: List of edit operations (each containing old_text and new_text)
+        dry_run: Preview changes without applying (default: False)
+        options: Optional formatting settings
+                    - preserve_indentation: Keep existing indentation (default: True)
+                    - normalize_whitespace: Normalize spaces (default: True)
+
+    Returns:
+        Detailed diff and match information including success status
+    """
+    import difflib
+    import re
+
+    # --- Utilitaires internes ---
+    def normalize_line_endings(text: str) -> str:
+        return text.replace("\r\n", "\n")
+
+    def normalize_whitespace(text: str) -> str:
+        result = re.sub(r"[ \t]+", " ", text)
+        result = "\n".join(line.strip() for line in result.split("\n"))
+        return result
+
+    def get_line_indentation(line: str) -> str:
+        match = re.match(r"^(\s*)", line)
+        return match.group(1) if match else ""
+
+    def preserve_indentation(old_text: str, new_text: str) -> str:
+        if ("- " in new_text or "* " in new_text) and ("- " in old_text or "* " in old_text):
+            return new_text
+        old_lines = old_text.split("\n")
+        new_lines = new_text.split("\n")
+        if not old_lines or not new_lines:
+            return new_text
+        base_indent = get_line_indentation(old_lines[0]) if old_lines and old_lines[0].strip() else ""
+        old_indents = {i: get_line_indentation(line) for i, line in enumerate(old_lines) if line.strip()}
+        new_indents = {i: get_line_indentation(line) for i, line in enumerate(new_lines) if line.strip()}
+        first_new_indent_len = len(new_indents.get(0, "")) if new_indents else 0
+        result_lines = []
+        for i, new_line in enumerate(new_lines):
+            if not new_line.strip():
+                result_lines.append("")
+                continue
+            new_indent = new_indents.get(i, "")
+            if i < len(old_lines) and i in old_indents:
+                target_indent = old_indents[i]
+            elif i == 0:
+                target_indent = base_indent
+            elif first_new_indent_len > 0:
+                curr_indent_len = len(new_indent)
+                indent_diff = max(0, curr_indent_len - first_new_indent_len)
+                target_indent = base_indent
+                for prev_i in range(i - 1, -1, -1):
+                    if prev_i in old_indents and prev_i in new_indents:
+                        prev_old = old_indents[prev_i]
+                        prev_new = new_indents[prev_i]
+                        if len(prev_new) <= curr_indent_len:
+                            relative_spaces = curr_indent_len - len(prev_new)
+                            target_indent = prev_old + " " * relative_spaces
+                            break
+            else:
+                target_indent = new_indent
+            result_lines.append(target_indent + new_line.lstrip())
+        return "\n".join(result_lines)
+
+    def create_unified_diff(original: str, modified: str, file_path: str) -> str:
+        original_lines = original.splitlines(True)
+        modified_lines = modified.splitlines(True)
+        diff_lines = difflib.unified_diff(
+            original_lines,
+            modified_lines,
+            fromfile=f"a/{file_path}",
+            tofile=f"b/{file_path}",
+            lineterm="",
+        )
+        return "".join(diff_lines)
+
+    def find_exact_match(content: str, pattern: str):
+        if pattern in content:
+            lines_before = content[: content.find(pattern)].count("\n")
+            line_count = pattern.count("\n") + 1
+            return True, lines_before, line_count
+        return False, -1, 0
+
+    # --- Début de la logique principale ---
+    import os
+    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    full_file_path = os.path.join(sandbox_path, file_path)
+
+    # Validation des paramètres
+    if not file_path or not isinstance(file_path, str):
+        return {"success": False, "error": f"File path must be a non-empty string, got {type(file_path)}"}
+    if not isinstance(edits, list) or not edits:
+        return {"success": False, "error": "Edits must be a non-empty list"}
+    if not os.path.isfile(full_file_path):
+        return {"success": False, "error": f"File not found: {file_path}"}
+
+    # Normalisation des edits
+    normalized_edits = []
+    for i, edit in enumerate(edits):
+        if not isinstance(edit, dict):
+            return {"success": False, "error": f"Edit #{i} must be a dictionary, got {type(edit)}"}
+        if "old_text" not in edit or "new_text" not in edit:
+            missing = ", ".join([f for f in ["old_text", "new_text"] if f not in edit])
+            return {"success": False, "error": f"Edit #{i} is missing required field(s): {missing}"}
+        normalized_edits.append({"old_text": edit["old_text"], "new_text": edit["new_text"]})
+
+    # Options
+    preserve_indent = options.get("preserve_indentation", True) if options else True
+    normalize_ws = options.get("normalize_whitespace", True) if options else True
+
+    # Lecture du contenu original
+    try:
+        with open(full_file_path, "r", encoding="utf-8") as f:
+            original_content = f.read()
+    except Exception as e:
+        return {"success": False, "error": f"Error reading file: {str(e)}"}
+
+    # Application des edits
+    match_results = []
+    changes_made = False
+    modified_content = normalize_line_endings(original_content)
+    for i, edit in enumerate(normalized_edits):
+        old = normalize_line_endings(edit["old_text"])
+        new = normalize_line_endings(edit["new_text"])
+        if normalize_ws:
+            old = normalize_whitespace(old)
+            new = normalize_whitespace(new)
+            mod_content_ws = normalize_whitespace(modified_content)
+        else:
+            mod_content_ws = modified_content
+        # Si déjà appliqué
+        if new in mod_content_ws and old not in mod_content_ws:
+            match_results.append({
+                "edit_index": i,
+                "match_type": "skipped",
+                "details": "Edit already applied - content already in desired state",
+            })
+            continue
+        # Recherche exacte
+        found, line_index, line_count = find_exact_match(modified_content, old)
+        if found:
+            # Préservation indentation
+            if preserve_indent:
+                new = preserve_indentation(old, new)
+            start_pos = modified_content.find(old)
+            end_pos = start_pos + len(old)
+            modified_content = modified_content[:start_pos] + new + modified_content[end_pos:]
+            changes_made = True
+            match_results.append({
+                "edit_index": i,
+                "match_type": "exact",
+                "line_index": line_index,
+                "line_count": line_count,
+            })
+        else:
+            match_results.append({
+                "edit_index": i,
+                "match_type": "failed",
+                "details": "No exact match found",
+            })
+    failed_matches = [r for r in match_results if r.get("match_type") == "failed"]
+    already_applied = [r for r in match_results if r.get("match_type") == "skipped" and "already applied" in r.get("details", "")]
+    result = {
+        "match_results": match_results,
+        "file": file_path,
+        "dry_run": dry_run,
+    }
+    if failed_matches:
+        result.update({"success": False, "error": "Failed to find exact match for one or more edits"})
+        return result
+    if not changes_made or (already_applied and len(already_applied) == len(normalized_edits)):
+        result.update({
+            "success": True,
+            "diff": "",
+            "message": "No changes needed - content already in desired state",
+        })
+        return result
+    diff = create_unified_diff(original_content, modified_content, file_path)
+    result.update({"diff": diff, "success": True})
+    if not dry_run and changes_made:
+        try:
+            with open(full_file_path, "w", encoding="utf-8") as f:
+                f.write(modified_content)
+        except Exception as e:
+            result.update({"success": False, "error": f"Error writing to file: {str(e)}"})
+            return result
+    return result
 
 
 # --- FastAPI App Definition ---
@@ -222,7 +498,6 @@ async def runAgent(data):
 
 
     sandbox_id = (data.get("sandbox_id") or "0")
-    print(f"Config : {data}")
 
     async with Agent(
         model=data.get("model"),
