@@ -470,7 +470,7 @@
                 config = JSON.parse(configText);
             } catch (e) {
                 // Affiche l'erreur dans la timeline
-                currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: 'Erreur: configuration JSON invalide', status: 'done' }]);
+                currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: 'Erreur: configuration JSON invalide', status: 'error' }]);
                 renderTimeline();
                 return;
             }
@@ -511,6 +511,9 @@
                 if (!res.body) {
                     // Affiche l'erreur dans la timeline
                     updateLastAssistantMessage('Erreur: Pas de flux de réponse.');
+                    // Remplace la dernière réponse assistant temporaire par une erreur
+                    currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: 'Erreur: Pas de flux de réponse.', status: 'error' }]);
+                    renderTimeline();
                     return;
                 }
                 const reader = res.body.getReader();
@@ -518,9 +521,7 @@
                 let responseText = '';
                 const decoder = new TextDecoder();
                 while (!done) {
-                    // --- Vérifie que la conversation n'a pas changé ---
                     if (currentConvId !== convIdAtRequest) {
-                        // Arrête la lecture et n'affiche rien
                         break;
                     }
                     const { value, done: doneReading } = await reader.read();
@@ -532,12 +533,27 @@
                 }
                 // Met à jour l'historique local avec la réponse finale
                 if (currentConvId === convIdAtRequest) {
-                    // Remplace la dernière réponse assistant temporaire par la vraie, status: 'done'
-                    currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: responseText, status: 'done' }]);
+                    // Si la réponse est vide ou contient une erreur, statut error
+                    let isError = false;
+                    let errorMsg = '';
+                    if (!responseText || /^\s*$/.test(responseText)) {
+                        isError = true;
+                        errorMsg = 'Erreur: Réponse vide de l\'assistant.';
+                    } else if (/^Erreur[:：]/i.test(responseText)) {
+                        isError = true;
+                        errorMsg = responseText;
+                    }
+                    if (isError) {
+                        currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: errorMsg, status: 'error' }]);
+                    } else {
+                        currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: responseText, status: 'done' }]);
+                    }
                     renderTimeline();
                 }
             } catch (e) {
                 updateLastAssistantMessage('Erreur: ' + e);
+                currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: 'Erreur: ' + e, status: 'error' }]);
+                renderTimeline();
             }
         }
         // Envoi avec bouton ou Entrée
@@ -617,10 +633,21 @@
             steps.forEach((step, idx) => {
                 // Statut de la dernière réponse assistant de l'étape
                 let lastStatus = step.statuses.length > 0 ? step.statuses[step.statuses.length - 1] : 'done';
-                let statusText = lastStatus === 'pending' ? 'En cours…' : 'Terminé';
-                let icon = lastStatus === 'pending' ? 'fa-spinner' : 'fa-check';
-                let bg = lastStatus === 'pending' ? 'bg-yellow-100' : 'bg-green-100';
-                let iconColor = lastStatus === 'pending' ? 'text-yellow-500 animate-spin' : 'text-green-600';
+                let statusText = lastStatus === 'pending' ? 'En cours…' : (lastStatus === 'error' ? 'Erreur' : 'Terminé');
+                let icon, bg, iconColor;
+                if (lastStatus === 'pending') {
+                    icon = 'fa-spinner';
+                    bg = 'bg-yellow-100';
+                    iconColor = 'text-yellow-500 animate-spin';
+                } else if (lastStatus === 'error') {
+                    icon = 'fa-exclamation';
+                    bg = 'bg-red-100';
+                    iconColor = 'text-red-600';
+                } else {
+                    icon = 'fa-check';
+                    bg = 'bg-green-100';
+                    iconColor = 'text-green-600';
+                }
                 const isLast = idx === steps.length - 1;
                 const stepDiv = document.createElement('div');
                 stepDiv.className = `relative z-10`;
