@@ -438,10 +438,10 @@
             const statusDiv = lastStep.querySelector('.mt-1.text-sm.text-gray-500');
             const icon = lastStep.querySelector('.flex-shrink-0 i');
             if (statusDiv && icon) {
-                statusDiv.textContent = 'Terminé';
-                icon.classList.remove('fa-spinner', 'text-yellow-500', 'animate-spin', 'bg-yellow-100');
-                icon.classList.add('fa-check', 'text-green-600');
-                lastStep.querySelector('.flex-shrink-0').className = 'flex-shrink-0 h-10 w-10 rounded-full bg-green-100 flex items-center justify-center mr-4';
+                statusDiv.textContent = 'En cours…';
+                icon.classList.remove('fa-check', 'text-green-600', 'bg-green-100');
+                icon.classList.add('fa-spinner', 'text-yellow-500', 'animate-spin');
+                lastStep.querySelector('.flex-shrink-0').className = 'flex-shrink-0 h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center mr-4';
             }
         }
         async function run(userInput) {
@@ -470,13 +470,13 @@
                 config = JSON.parse(configText);
             } catch (e) {
                 // Affiche l'erreur dans la timeline
-                currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: 'Erreur: configuration JSON invalide' }]);
+                currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: 'Erreur: configuration JSON invalide', status: 'done' }]);
                 renderTimeline();
                 return;
             }
             await saveConfig(config); // Sauvegarde à chaque exécution
-            // Ajoute une réponse assistant temporaire ⏳
-            currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: '<span class="waiting">⏳</span>' }]);
+            // Ajoute une réponse assistant temporaire ⏳ avec status: 'pending'
+            currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: '<span class="waiting">⏳</span>', status: 'pending' }]);
             renderTimeline();
             const llm = config.llm || {};
             // Ajout de l'historique dans le payload
@@ -532,8 +532,8 @@
                 }
                 // Met à jour l'historique local avec la réponse finale
                 if (currentConvId === convIdAtRequest) {
-                    // Remplace la dernière réponse assistant temporaire par la vraie
-                    currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: responseText }]);
+                    // Remplace la dernière réponse assistant temporaire par la vraie, status: 'done'
+                    currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: responseText, status: 'done' }]);
                     renderTimeline();
                 }
             } catch (e) {
@@ -598,30 +598,32 @@
                 const msg = currentConvMessages[i];
                 if (msg.role === 'user') {
                     if (currentStep) steps.push(currentStep);
-                    currentStep = { prompt: msg.content, responses: [] };
+                    currentStep = { prompt: msg.content, responses: [], statuses: [] };
                 } else if (msg.role === 'assistant') {
                     if (!currentStep) {
                         if (steps.length > 0) {
                             steps[steps.length - 1].responses.push(msg.content);
+                            steps[steps.length - 1].statuses.push(msg.status || 'done');
                         } else {
-                            currentStep = { prompt: '', responses: [msg.content] };
+                            currentStep = { prompt: '', responses: [msg.content], statuses: [msg.status || 'done'] };
                         }
                     } else {
                         currentStep.responses.push(msg.content);
+                        currentStep.statuses.push(msg.status || 'done');
                     }
                 }
             }
             if (currentStep) steps.push(currentStep);
             steps.forEach((step, idx) => {
-                const hasResponse = step.responses.length > 0;
-                let status = hasResponse ? 'Done' : 'In progress...';
-                let icon = hasResponse ? 'fa-check' : 'fa-spinner';
-                let bg = hasResponse ? 'bg-green-100' : 'bg-yellow-100';
-                let iconColor = hasResponse ? 'text-green-600' : 'text-yellow-500 animate-spin';
+                // Statut de la dernière réponse assistant de l'étape
+                let lastStatus = step.statuses.length > 0 ? step.statuses[step.statuses.length - 1] : 'done';
+                let statusText = lastStatus === 'pending' ? 'En cours…' : 'Terminé';
+                let icon = lastStatus === 'pending' ? 'fa-spinner' : 'fa-check';
+                let bg = lastStatus === 'pending' ? 'bg-yellow-100' : 'bg-green-100';
+                let iconColor = lastStatus === 'pending' ? 'text-yellow-500 animate-spin' : 'text-green-600';
                 const isLast = idx === steps.length - 1;
                 const stepDiv = document.createElement('div');
                 stepDiv.className = `relative z-10`;
-                // Move the menu button to the left of the circle and translate menu to English
                 stepDiv.innerHTML = `
                     <div class="flex items-start">
                         <div class="relative flex items-center mr-4" style="transform: translateX(-26px);">
@@ -645,7 +647,7 @@
                                 <h4 class="font-medium text-gray-800 ">${step.prompt || ''}</h4>
                                 <button class="command-toggle text-gray-400 hover:text-gray-600" aria-label="Show details"><i class="fas fa-chevron-down"></i></button>
                             </div>
-                            <div class="mt-1 text-sm text-gray-500">${status}</div>
+                            <div class="mt-1 text-sm text-gray-500">${statusText}</div>
                             <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">
                                 <div class="text-sm text-gray-700 mb-2 font-medium">${step.responses.map(r => r.replace(/\n/g, '<br>')).join('<hr class=\"my-2\">')}</div>
                             </div>
