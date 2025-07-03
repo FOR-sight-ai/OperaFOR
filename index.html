@@ -584,20 +584,6 @@
             document.getElementById('chatContainer').style.display = 'flex';
         };
 
-        // --- Ajout : gestion du repli/dépli des détails de la timeline ---
-        document.querySelectorAll('.command-toggle').forEach(function (toggle) {
-            toggle.addEventListener('click', function () {
-                const commandCollapse = this.closest('.flex-1').querySelector('.command-collapse');
-                const icon = this.querySelector('i');
-                commandCollapse.classList.toggle('open');
-                if (commandCollapse.classList.contains('open')) {
-                    icon.classList.replace('fa-chevron-down', 'fa-chevron-up');
-                } else {
-                    icon.classList.replace('fa-chevron-up', 'fa-chevron-down');
-                }
-            });
-        });
-
         function renderTimeline() {
             const timeline = document.getElementById('timelineContainer');
             timeline.innerHTML = '';
@@ -647,12 +633,7 @@
                 const stepDiv = document.createElement('div');
                 stepDiv.className = `relative z-10`;
                 stepDiv.innerHTML = `
-                    <div class="flex items-start">
-                        <div class="relative flex items-center mr-4" style="transform: translateX(-26px);">
-                            <button class="step-menu-btn w-6 h-6 flex items-center justify-center rounded-full text-gray-500 hover:text-blue-600 focus:outline-none mr-2" title="Options">
-                                <i class="fas fa-ellipsis-v"></i>
-                            </button>
-                            <div class="step-menu hidden absolute left-0 top-8 bg-white border border-gray-200 rounded shadow-lg py-1 min-w-[180px] text-sm"
+                            <div class="step-menu hidden absolute left-0 top-2 bg-white border border-gray-200 rounded shadow-lg py-1 min-w-[180px] text-sm"
                                  style="z-index:50;">
                                 <button class="step-menu-item newsandbox block w-full text-left px-4 py-2 hover:bg-gray-100">New sandbox from here</button>
                                 ${isLast ? `<button class="step-menu-item rerun block w-full text-left px-4 py-2 hover:bg-gray-100">Rerun</button>
@@ -660,6 +641,11 @@
 
                                  ${isLast ? '' : `<button class="step-menu-item revert block w-full text-left px-4 py-2 hover:bg-gray-100 text-red-600">Revert to here</button>`}
                             </div>
+                    <div class="flex items-start">
+                        <div class="relative flex items-center mr-4" style="transform: translateX(-26px);">
+                            <button class="step-menu-btn w-6 h-6 flex items-center justify-center rounded-full text-gray-500 hover:text-blue-600 focus:outline-none mr-2" title="Options">
+                                <i class="fas fa-ellipsis-v"></i>
+                            </button>
                             <div class="flex-shrink-0 h-10 w-10 rounded-full ${bg} flex items-center justify-center">
                                 <i class="fas ${icon} ${iconColor}"></i>
                             </div>
@@ -677,19 +663,6 @@
                     </div>
                 `;
                 timeline.appendChild(stepDiv);
-            });
-            // Ajoute le comportement repli/dépli
-            timeline.querySelectorAll('.command-toggle').forEach(function (toggle) {
-                toggle.addEventListener('click', function () {
-                    const commandCollapse = this.closest('.flex-1').querySelector('.command-collapse');
-                    const icon = this.querySelector('i');
-                    commandCollapse.classList.toggle('open');
-                    if (commandCollapse.classList.contains('open')) {
-                        icon.classList.replace('fa-chevron-down', 'fa-chevron-up');
-                    } else {
-                        icon.classList.replace('fa-chevron-up', 'fa-chevron-down');
-                    }
-                });
             });
             // Ajout : clic sur le prompt utilisateur pour ouvrir/fermer le détail
             timeline.querySelectorAll('.user-prompt').forEach(function (prompt) {
@@ -710,7 +683,7 @@
                     e.stopPropagation();
                     // Ferme tous les autres menus
                     document.querySelectorAll('.step-menu').forEach(m => m.classList.add('hidden'));
-                    const menu = btn.parentElement.querySelector('.step-menu');
+                    const menu = btn.parentElement.parentElement.parentElement.querySelector('.step-menu');
                     menu.classList.toggle('hidden');
                     // Ferme le menu si clic ailleurs
                     const closeMenu = (ev) => {
