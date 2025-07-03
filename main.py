@@ -14,6 +14,8 @@ import uuid
 import json
 import sys
 from datetime import datetime
+import subprocess
+import asyncio
 
 # --- FastMCP Server Definition ---
 mcp = FastMCP("OperaFOR")
@@ -191,7 +193,7 @@ def read_file_sandbox(sandbox_id: str, file_name:str) -> dict:
     with open(file_path, 'r') as f:
         content = f.read()
     
-    return {"file_content": content}
+    return content
 
 
 @mcp.tool()
@@ -493,102 +495,93 @@ def save_all_sandboxes(convs):
         json.dump(convs, f, indent=2)
 
 async def runAgent(data):
-    # Retrieve the full history if provided
-    messages = data.get("messages")
-    prompt = (data.get("prompt") or "").strip()
+    """Exécute l'agent dans un thread pour ne pas bloquer l'event loop."""
+    loop = asyncio.get_event_loop()
+    queue = asyncio.Queue()
 
+    def agent_worker():
+        # --- Copie de l'ancienne logique de runAgent, mais on push dans la queue ---
+        messages = data.get("messages")
+        prompt = (data.get("prompt") or "").strip()
+        sandbox_id = (data.get("sandbox_id") or "0")
+        servers = data.get("servers") or []
+        server_params = []
+        for s in servers:
+            if isinstance(s, dict) and s.get("type") == "http":
+                if "url" in s:
+                    server_params.append({"url": s["url"], "transport": "streamable-http"})
+                elif "config" in s and "url" in s["config"]:
+                    server_params.append({"url": s["config"]["url"], "transport": "streamable-http"})
+            elif isinstance(s, dict) and s.get("type") == "stdio":
+                server_params.append(StdioServerParameters(
+                    command=s.get("command"),
+                    args=s.get("args", []),
+                    env=s.get("env", os.environ)
+                ))
+        if not server_params:
+            server_params = [{"url": "http://localhost:9000/mcp", "transport": "streamable-http"}]
+        model_name = data.get("model")
+        api_key = data.get("api_key")
+        endpoint = data.get("endpoint") or data.get("base_url")
+        from smolagents import OpenAIServerModel
+        model = OpenAIServerModel(
+            model_id=model_name,
+            api_base=endpoint,
+            api_key=api_key
+        )
+        messages.insert(0,{"role": "system", "content": f"Whenever creating or editing file prefers to do it in the sandbox using the tools; Sandbox ID : {sandbox_id} \n Sandbox path: {os.path.join(SANDBOXES_DIR, sandbox_id)}"})
+        full_prompt = f"conversation history : {messages} \n\nPlease respond to the latest message : {prompt}"
+        try:
+            queue.put_nowait("...working on it... \n\n")
+            response = ""
+            with MCPClient(server_params) as tools:
+                agent = CodeAgent(tools=tools, model=model, add_base_tools=True)
+                if messages:
+                    pass  # déjà utilisé dans full_prompt
+                response = agent.run(full_prompt)
+                queue.put_nowait(response)
+        except Exception as e:
+            tb_str = traceback.format_exc()
+            queue.put_nowait(f"\nError during agent run: {e}\n{tb_str}\n")
+            response = ""
+        # --- Sauvegarde de la conversation et commit git (identique à avant) ---
+        sandbox_id = (data.get("sandbox_id") or "0")
+        new_message = {"role": "assistant", "content": response}
+        convs = load_all_sandboxes()
+        conv = convs.get(sandbox_id)
+        if conv is None:
+            conv = {"id": sandbox_id, "messages": []}
+        conv.setdefault("messages", []).append(new_message)
+        sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+        os.makedirs(sandbox_path, exist_ok=True)
+        all_messages = conv.get("messages", [])
+        user_prompt = prompt if prompt else "Agent interaction"
+        commit_message = f"Agent response to: {user_prompt[:50]}..."
+        conversation_file = os.path.join(sandbox_path, "conversation.json")
+        with open(conversation_file, "w") as f:
+            json.dump(all_messages, f, indent=2)
+        commit_hash = commit_sandbox_changes(sandbox_path, all_messages, commit_message)
+        if commit_hash:
+            conv.setdefault("commits", []).append({
+                "step": len(all_messages) - 1,
+                "hash": commit_hash,
+                "message": commit_message,
+                "timestamp": datetime.now().isoformat()
+            })
+        convs[sandbox_id] = conv
+        save_all_sandboxes(convs)
+        queue.put_nowait(None)  # Signal de fin
 
-    sandbox_id = (data.get("sandbox_id") or "0")
+    # Lance l'agent dans un thread
+    import threading
+    threading.Thread(target=agent_worker, daemon=True).start()
 
-    # Prepare server parameters for MCPClient
-    servers = data.get("servers") or []
-    server_params = []
-    for s in servers:
-        if isinstance(s, dict) and s.get("type") == "http":
-            # url is either in url or in config.url
-            if "url" in s:
-                server_params.append({"url": s["url"], "transport": "streamable-http"})
-            elif "config" in s and "url" in s["config"]:
-                server_params.append({"url": s["config"]["url"], "transport": "streamable-http"})
-        elif isinstance(s, dict) and s.get("type") == "stdio":
-            server_params.append(StdioServerParameters(
-                command=s.get("command"),
-                args=s.get("args", []),
-                env=s.get("env", os.environ)
-            ))
-    if not server_params:
-        server_params = [{"url": "http://localhost:9000/mcp", "transport": "streamable-http"}]
-
-    model_name = data.get("model")
-    api_key = data.get("api_key")
-    endpoint = data.get("endpoint") or data.get("base_url")
-
-
-    from smolagents import OpenAIServerModel
-
-    model = OpenAIServerModel(
-        model_id=model_name,
-        api_base=endpoint,
-        api_key=api_key
-    )
-
-    messages.insert(0,{"role": "system", "content": f"Whenever creating or editing file prefers to do it in the sandbox using the tools; Sandbox ID : {sandbox_id} \n Sandbox path: {os.path.join(SANDBOXES_DIR, sandbox_id)}"})
-    full_prompt = f"conversation history : {messages} \n\nPlease respond to the latest message : {prompt}"
-
-    response = ""
-    try:
-        with MCPClient(server_params) as tools:
-            agent = CodeAgent(tools=tools, model=model, add_base_tools=True)
-            # Compose the conversation history if needed
-            if messages:
-                # If CodeAgent supports history, pass it here (not shown in example)
-                pass
-            # Streaming mode
-            response = agent.run(full_prompt)
-            yield response
-    except Exception as e:
-        tb_str = traceback.format_exc()
-        print(f"\nError during agent run: {e}\n{tb_str}", flush=True)
-
-    # saving in conversation
-    sandbox_id = (data.get("sandbox_id") or "0")
-    new_message = {"role": "assistant", "content": response}
-    convs = load_all_sandboxes()
-    conv = convs.get(sandbox_id)
-    if conv is None:
-        conv = {"id": sandbox_id, "messages": []}
-    conv.setdefault("messages", []).append(new_message)
-    
-    # Git commit functionality
-    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
-    os.makedirs(sandbox_path, exist_ok=True)
-    
-    # Get all messages for this conversation
-    all_messages = conv.get("messages", [])
-    
-    # Create commit message based on the last user message and response
-    user_prompt = prompt if prompt else "Agent interaction"
-    commit_message = f"Agent response to: {user_prompt[:50]}..."
-
-    # Write the conversation to a JSON file in the sandbox
-    conversation_file = os.path.join(sandbox_path, "conversation.json")
-    with open(conversation_file, "w") as f:
-        json.dump(all_messages, f, indent=2)
-
-    # Commit changes and get hash
-    commit_hash = commit_sandbox_changes(sandbox_path, all_messages, commit_message)
-    
-    # Store commit hash in sandbox data
-    if commit_hash:
-        conv.setdefault("commits", []).append({
-            "step": len(all_messages) - 1,  # Index of the assistant message
-            "hash": commit_hash,
-            "message": commit_message,
-            "timestamp": datetime.now().isoformat()
-        })
-    
-    convs[sandbox_id] = conv
-    save_all_sandboxes(convs)
+    # Stream les résultats au fur et à mesure
+    while True:
+        item = await queue.get()
+        if item is None:
+            break
+        yield item
 
 @app.post("/agent")
 async def run_agent(request: Request):
@@ -788,6 +781,23 @@ async def api_revert_sandbox(conv_id: str, request: Request):
         return {"status": "reverted", "commit_hash": commit_hash}
     else:
         return JSONResponse(status_code=500, content={"error": "Failed to revert sandbox"})
+
+@app.post("/open_sandbox_folder/{sandbox_id}")
+async def open_sandbox_folder(sandbox_id: str):
+    """Ouvre le dossier du sandbox dans l'explorateur natif."""
+    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    if not os.path.exists(sandbox_path):
+        return JSONResponse(status_code=404, content={"error": "Sandbox folder not found"})
+    try:
+        if sys.platform.startswith("darwin"):  # macOS
+            subprocess.Popen(["open", sandbox_path])
+        elif sys.platform.startswith("win"):  # Windows
+            os.startfile(sandbox_path)
+        else:  # Linux et autres
+            subprocess.Popen(["xdg-open", sandbox_path])
+        return {"status": "ok"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 # --- Server Launchers ---
 def run_mcp():
