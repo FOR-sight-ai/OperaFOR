@@ -532,7 +532,10 @@ async def runAgent(data):
         api_key=api_key
     )
 
-    response= ""
+    messages.insert(0,{"role": "system", "content": f"Whenever creating or editing file prefers to do it in the sandbox using the tools; Sandbox ID : {sandbox_id} \n Sandbox path: {os.path.join(SANDBOXES_DIR, sandbox_id)}"})
+    full_prompt = f"conversation history : {messages} \n\nPlease respond to the latest message : {prompt}"
+
+    response = ""
     try:
         with MCPClient(server_params) as tools:
             agent = CodeAgent(tools=tools, model=model, add_base_tools=True)
@@ -541,7 +544,7 @@ async def runAgent(data):
                 # If CodeAgent supports history, pass it here (not shown in example)
                 pass
             # Streaming mode
-            response = agent.run(prompt)
+            response = agent.run(full_prompt)
             yield response
     except Exception as e:
         tb_str = traceback.format_exc()
