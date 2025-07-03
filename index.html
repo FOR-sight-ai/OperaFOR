@@ -306,14 +306,14 @@
                             await loadSandbox(currentConvId);
                         }
                     } else {
-                        alert('Le titre ne peut pas être vide.');
+                        alert('Title cannot be empty.');
                         input.focus();
                     }
                 };
             };
             deleteBtn.onclick = async function () {
                 if (!currentConvId) return;
-                if (confirm('Supprimer cette conversation ?')) {
+                if (confirm('Delete Sandbox ?')) {
                     const ok = await deleteSandbox(currentConvId);
                     if (ok) {
                         await loadHistoryPanel();
@@ -396,7 +396,7 @@
                 // Ajout de l'icône dossier (open folder)
                 const folderBtn = document.createElement('button');
                 folderBtn.className = 'mr-2 text-gray-500 hover:text-blue-600';
-                folderBtn.title = 'Ouvrir le dossier du sandbox';
+                folderBtn.title = 'Open Sandbox Folder';
                 folderBtn.innerHTML = '<i class="fas fa-folder-open"></i>';
                 folderBtn.onclick = function (e) {
                     e.stopPropagation();
@@ -473,9 +473,9 @@
                 }
             }
             if (needToAddUserMsg) {
-                currentConvMessages = (currentConvMessages || []).concat([{ role: 'user', content: userInput }]);
+                currentConvMessages = (currentConvMessages || []).concat([{ role: 'user', content: userInput, status: 'pending' }]);
                 renderTimeline(); // Affiche l'étape "En cours..."
-                await addMessageToSandbox(currentConvId, { role: 'user', content: userInput });
+                await addMessageToSandbox(currentConvId, { role: 'user', content: userInput, status: 'pending' });
             }
             document.getElementById('userInput').value = '';
             const configText = document.getElementById('config').value;
@@ -486,12 +486,14 @@
                 // Affiche l'erreur dans la timeline
                 currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: 'Erreur: configuration JSON invalide', status: 'error' }]);
                 renderTimeline();
+                await addMessageToSandbox(currentConvId, { role: 'assistant', content: 'Erreur: configuration JSON invalide', status: 'error' });
                 return;
             }
             await saveConfig(config); // Sauvegarde à chaque exécution
             // Ajoute une réponse assistant temporaire ⏳ avec status: 'pending'
             currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: '<span class="waiting">⏳</span>', status: 'pending' }]);
             renderTimeline();
+            await addMessageToSandbox(currentConvId, { role: 'assistant', content: 'Run date : ' + new Date().toLocaleString('fr-FR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }), status: 'pending' });
             const llm = config.llm || {};
             // Ajout de l'historique dans le payload
             const messages = currentConvMessages;
@@ -528,6 +530,7 @@
                     // Remplace la dernière réponse assistant temporaire par une erreur
                     currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: 'Erreur: Pas de flux de réponse.', status: 'error' }]);
                     renderTimeline();
+                    await addMessageToSandbox(currentConvId, { role: 'assistant', content: 'Erreur: Pas de flux de réponse.', status: 'error' });
                     return;
                 }
                 const reader = res.body.getReader();
@@ -559,6 +562,7 @@
                     }
                     if (isError) {
                         currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: errorMsg, status: 'error' }]);
+                        await addMessageToSandbox(currentConvId, { role: 'assistant', content: errorMsg, status: 'error' });
                     } else {
                         currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: responseText, status: 'done' }]);
                     }
@@ -567,6 +571,7 @@
             } catch (e) {
                 updateLastAssistantMessage('Erreur: ' + e);
                 currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: 'Erreur: ' + e, status: 'error' }]);
+                await addMessageToSandbox(currentConvId, { role: 'assistant', content: 'Erreur: ' + e, status: 'error' });
                 renderTimeline();
             }
         }

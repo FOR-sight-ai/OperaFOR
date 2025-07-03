@@ -149,12 +149,12 @@ def revert_sandbox_to_commit(sandbox_path: str, commit_hash: str) -> bool:
 
 
 @mcp.tool()
-def list_sandbox_files(sandbox_id: str) -> dict:
+def list_sandbox_files(sandbox_id: str) -> List[str]:
     """ List all files in the sandbox directory.
     Args:
         sandbox_id (str): The ID of the sandbox.
     Returns:
-        dict: A dictionary containing the list of files in the sandbox.
+        List[str]: A list containing the paths of files in the sandbox.
     """
     # return the content of the output folder
     sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
@@ -172,17 +172,17 @@ def list_sandbox_files(sandbox_id: str) -> dict:
             if os.path.isfile(file_path):
                 output_files.append(rel_path)
     print(f"Files in sandbox {sandbox_id}: {output_files}")
-    return {"files in the sandbox": output_files}
+    return output_files
 
 
 @mcp.tool()
-def read_file_sandbox(sandbox_id: str, file_name:str) -> dict:
+def read_file_sandbox(sandbox_id: str, file_name:str) -> str:
     """ Read a file from the sandbox directory.
     Args:
         sandbox_id (str): The ID of the sandbox.
         file_name (str): The name of the file to read.
     Returns:
-        dict: A dictionary containing the file content.
+        str: The content of the file.
     """
     sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
     file_path = os.path.join(sandbox_path, file_name)
@@ -544,9 +544,10 @@ async def runAgent(data):
             tb_str = traceback.format_exc()
             queue.put_nowait(f"\nError during agent run: {e}\n{tb_str}\n")
             response = ""
+
         # --- Sauvegarde de la conversation et commit git (identique à avant) ---
         sandbox_id = (data.get("sandbox_id") or "0")
-        new_message = {"role": "assistant", "content": response}
+        new_message = {"role": "assistant", "content": response, "status": "done"}
         convs = load_all_sandboxes()
         conv = convs.get(sandbox_id)
         if conv is None:
