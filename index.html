@@ -506,7 +506,7 @@
                     // Affiche l'erreur dans la timeline
                     updateLastAssistantMessage('Erreur: Pas de flux de réponse.');
                     // Remplace la dernière réponse assistant temporaire par une erreur
-                    currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: 'Erreur: Pas de flux de réponse.', status: 'error' }]);
+                    currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: 'Erreur: Pas de flux de réponse.', status: 'error' }]);
                     renderTimeline();
                     await addMessageToSandbox(currentConvId, { role: 'assistant', content: 'Erreur: Pas de flux de réponse.', status: 'error' });
                     return;
@@ -539,10 +539,10 @@
                         errorMsg = responseText;
                     }
                     if (isError) {
-                        currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: errorMsg, status: 'error' }]);
+                        currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: errorMsg, status: 'error' }]);
                         await addMessageToSandbox(currentConvId, { role: 'assistant', content: errorMsg, status: 'error' });
                     } else {
-                        currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: responseText, status: 'done' }]);
+                        currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: responseText, status: 'done' }]);
                     }
                     renderTimeline();
                 }
