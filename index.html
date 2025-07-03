@@ -494,27 +494,9 @@
             currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: '<span class="waiting">⏳</span>', status: 'pending' }]);
             renderTimeline();
             await addMessageToSandbox(currentConvId, { role: 'assistant', content: 'Run date : ' + new Date().toLocaleString('fr-FR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }), status: 'pending' });
-            const llm = config.llm || {};
-            // Ajout de l'historique dans le payload
-            const messages = currentConvMessages;
-            const payload = {
-                model: llm.model,
-                base_url: llm.base_url || llm.endpoint, // compatibility
-                api_key: llm.apiKey,
-                sandbox_id: currentConvId,
-                servers: config.servers || [
-                    {
-                        type: "http",
-                        config: {
-                            url: "http://localhost:9000/mcp"
-                        }
-                    }
-                ],
-                prompt: userInput,
-                messages: messages,
-                sandbox_id: currentConvId,
-            };
-            // --- Correction : capture l'ID de la conversation au moment de l'envoi ---
+
+            const payload = { sandbox_id: currentConvId };
+            // --- capture l'ID de la conversation au moment de l'envoi ---
             const convIdAtRequest = currentConvId;
             try {
                 const res = await fetch("/agent", {

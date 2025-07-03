@@ -16,6 +16,7 @@ import sys
 from datetime import datetime
 import subprocess
 import asyncio
+import threading
 
 # --- FastMCP Server Definition ---
 mcp = FastMCP("OperaFOR")
@@ -494,17 +495,17 @@ def save_all_sandboxes(convs):
     with open(CONV_FILE, 'w') as f:
         json.dump(convs, f, indent=2)
 
-async def runAgent(data):
-    """Exécute l'agent dans un thread pour ne pas bloquer l'event loop."""
+async def runAgent(sandbox_id):
+    """Run the agent with the provided data and stream results."""
     loop = asyncio.get_event_loop()
     queue = asyncio.Queue()
 
     def agent_worker():
-        # --- Copie de l'ancienne logique de runAgent, mais on push dans la queue ---
-        messages = data.get("messages")
-        prompt = (data.get("prompt") or "").strip()
-        sandbox_id = (data.get("sandbox_id") or "0")
-        servers = data.get("servers") or []
+        # load from config file
+        with open(CONFIG_PATH, "r") as f:
+            config = json.load(f)
+        servers = config.get("servers", [])
+
         server_params = []
         for s in servers:
             if isinstance(s, dict) and s.get("type") == "http":
@@ -520,15 +521,23 @@ async def runAgent(data):
                 ))
         if not server_params:
             server_params = [{"url": "http://localhost:9000/mcp", "transport": "streamable-http"}]
-        model_name = data.get("model")
-        api_key = data.get("api_key")
-        endpoint = data.get("endpoint") or data.get("base_url")
+        model_name = config.get("llm", {}).get("model")
+        api_key = config.get("llm", {}).get("apiKey") or config.get("llm", {}).get("api_key")
+        endpoint = config.get("llm", {}).get("endpoint") or config.get("llm", {}).get("base_url")
         from smolagents import OpenAIServerModel
         model = OpenAIServerModel(
             model_id=model_name,
             api_base=endpoint,
             api_key=api_key
         )
+        # find corresponding sandbox from sandbox json file
+        convs = load_all_sandboxes()
+        conv = convs.get(sandbox_id)
+
+        messages = conv.get("messages", [])
+        # find the last user message
+        prompt = (messages[-1].get("content") if messages else "").strip()
+
         messages.insert(0,{"role": "system", "content": f"Whenever creating or editing file prefers to do it in the sandbox using the tools; Sandbox ID : {sandbox_id} \n Sandbox path: {os.path.join(SANDBOXES_DIR, sandbox_id)}"})
         full_prompt = f"conversation history : {messages} \n\nPlease respond to the latest message : {prompt}"
         try:
@@ -536,8 +545,6 @@ async def runAgent(data):
             response = ""
             with MCPClient(server_params) as tools:
                 agent = CodeAgent(tools=tools, model=model, add_base_tools=True)
-                if messages:
-                    pass  # déjà utilisé dans full_prompt
                 response = agent.run(full_prompt)
                 queue.put_nowait(response)
         except Exception as e:
@@ -545,8 +552,7 @@ async def runAgent(data):
             queue.put_nowait(f"\nError during agent run: {e}\n{tb_str}\n")
             response = ""
 
-        # --- Sauvegarde de la conversation et commit git (identique à avant) ---
-        sandbox_id = (data.get("sandbox_id") or "0")
+        # --- Sauvegarde de la conversation et commit git  ---
         new_message = {"role": "assistant", "content": response, "status": "done"}
         convs = load_all_sandboxes()
         conv = convs.get(sandbox_id)
@@ -574,7 +580,6 @@ async def runAgent(data):
         queue.put_nowait(None)  # Signal de fin
 
     # Lance l'agent dans un thread
-    import threading
     threading.Thread(target=agent_worker, daemon=True).start()
 
     # Stream les résultats au fur et à mesure
@@ -588,7 +593,7 @@ async def runAgent(data):
 async def run_agent(request: Request):
     """Handle a streaming prompt with Agent.run()."""
     data = await request.json()
-    return StreamingResponse(runAgent(data), media_type="text/plain")
+    return StreamingResponse(runAgent(data.get("sandbox_id")), media_type="text/plain")
 
 @app.get("/")
 async def serve_index():
