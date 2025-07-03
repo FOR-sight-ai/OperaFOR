@@ -5,7 +5,8 @@ from typing import Any, Dict, List
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from huggingface_hub import Agent  # Agent wraps MCPClient and handles tools
+from smolagents import MCPClient, CodeAgent
+from mcp import StdioServerParameters
 from fastmcp import FastMCP
 import webview
 import logging
@@ -13,6 +14,9 @@ import uuid
 import json
 import sys
 from datetime import datetime
+
+# --- FastMCP Server Definition ---
+mcp = FastMCP("OperaFOR")
 
 
 def get_config_dir():
@@ -139,9 +143,6 @@ def revert_sandbox_to_commit(sandbox_path: str, commit_hash: str) -> bool:
     except Exception as e:
         print(f"Error reverting to commit {commit_hash}: {e}")
         return False
-
-# --- MCP Server Definition ---
-mcp = FastMCP("OperaFOR")
 
 
 
@@ -499,38 +500,56 @@ async def runAgent(data):
 
     sandbox_id = (data.get("sandbox_id") or "0")
 
-    async with Agent(
-        model=data.get("model"),
-        base_url=data.get("base_url"),
-        api_key=data.get("api_key"),
-        servers=data.get("servers")
-    ) as agent:
-        await agent.load_tools()
+    # Prepare server parameters for MCPClient
+    servers = data.get("servers") or []
+    server_params = []
+    for s in servers:
+        if isinstance(s, dict) and s.get("type") == "http":
+            # url is either in url or in config.url
+            if "url" in s:
+                server_params.append({"url": s["url"], "transport": "streamable-http"})
+            elif "config" in s and "url" in s["config"]:
+                server_params.append({"url": s["config"]["url"], "transport": "streamable-http"})
+        elif isinstance(s, dict) and s.get("type") == "stdio":
+            server_params.append(StdioServerParameters(
+                command=s.get("command"),
+                args=s.get("args", []),
+                env=s.get("env", os.environ)
+            ))
+    if not server_params:
+        server_params = [{"url": "http://localhost:9000/mcp", "transport": "streamable-http"}]
 
-        response_acum = ""
-        try:
-            agent.messages.append(
-                    {"role": "system", "content": f"Sandbox ID : {sandbox_id}"})
-                    #"Always structure your response to the user with html code to be displayed directly in an existing <div>, styled using tailwindcss and fontawesome"})
+    model_name = data.get("model")
+    api_key = data.get("api_key")
+    endpoint = data.get("endpoint") or data.get("base_url")
+
+
+    from smolagents import OpenAIServerModel
+
+    model = OpenAIServerModel(
+        model_id=model_name,
+        api_base=endpoint,
+        api_key=api_key
+    )
+
+    response= ""
+    try:
+        with MCPClient(server_params) as tools:
+            agent = CodeAgent(tools=tools, model=model, add_base_tools=True)
+            # Compose the conversation history if needed
             if messages:
-                agent.messages.extend(messages[:-1])
-            async for chunk in agent.run(prompt):
-                if hasattr(chunk, "choices"):
-                    delta = chunk.choices[0].delta
-                    if delta.content:
-                        yield delta.content
-                        response_acum += delta.content
-                    if delta.tool_calls:
-                        for call in delta.tool_calls:
-                            if call.function.name:
-                                print(f"Calling Tool : {call.function.name} {call.function.arguments}\n")
-        except Exception as e:
-            tb_str = traceback.format_exc()
-            print(f"\nError during agent run: {e}\n{tb_str}", flush=True)
-    
+                # If CodeAgent supports history, pass it here (not shown in example)
+                pass
+            # Streaming mode
+            response = agent.run(prompt)
+            yield response
+    except Exception as e:
+        tb_str = traceback.format_exc()
+        print(f"\nError during agent run: {e}\n{tb_str}", flush=True)
+
     # saving in conversation
     sandbox_id = (data.get("sandbox_id") or "0")
-    new_message = {"role": "assistant", "content": response_acum}
+    new_message = {"role": "assistant", "content": response}
     convs = load_all_sandboxes()
     conv = convs.get(sandbox_id)
     if conv is None:
@@ -572,7 +591,6 @@ async def runAgent(data):
 async def run_agent(request: Request):
     """Handle a streaming prompt with Agent.run()."""
     data = await request.json()
-    logger.info(f"/agent endpoint called. Payload: {data}")
     return StreamingResponse(runAgent(data), media_type="text/plain")
 
 @app.get("/")
@@ -593,7 +611,7 @@ async def serve_index():
 
 DEFAULT_CONFIG = {
     "llm": {
-        "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+        "endpoint": "https://openrouter.ai/api/v1",
         "model": "deepseek/deepseek-chat-v3-0324:free",
         "apiKey": "your_api_key"
     },
