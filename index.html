@@ -452,7 +452,7 @@
             const statusDiv = lastStep.querySelector('.mt-1.text-sm.text-gray-500');
             const icon = lastStep.querySelector('.flex-shrink-0 i');
             if (statusDiv && icon) {
-                statusDiv.textContent = 'En cours…';
+                statusDiv.textContent = 'Working…';
                 icon.classList.remove('fa-check', 'text-green-600', 'bg-green-100');
                 icon.classList.add('fa-spinner', 'text-yellow-500', 'animate-spin');
                 lastStep.querySelector('.flex-shrink-0').className = 'flex-shrink-0 h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center mr-4';
@@ -490,10 +490,6 @@
                 return;
             }
             await saveConfig(config); // Sauvegarde à chaque exécution
-            // Ajoute une réponse assistant temporaire ⏳ avec status: 'pending'
-            currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: '<span class="waiting">⏳</span>', status: 'pending' }]);
-            renderTimeline();
-            await addMessageToSandbox(currentConvId, { role: 'assistant', content: 'Run date : ' + new Date().toLocaleString('fr-FR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }), status: 'pending' });
 
             const payload = { sandbox_id: currentConvId };
             // --- capture l'ID de la conversation au moment de l'envoi ---
@@ -552,8 +548,6 @@
                 }
             } catch (e) {
                 updateLastAssistantMessage('Erreur: ' + e);
-                currentConvMessages = currentConvMessages.slice(0, -1).concat([{ role: 'assistant', content: 'Erreur: ' + e, status: 'error' }]);
-                await addMessageToSandbox(currentConvId, { role: 'assistant', content: 'Erreur: ' + e, status: 'error' });
                 renderTimeline();
             }
         }
@@ -590,7 +584,7 @@
             document.getElementById('chatContainer').style.display = 'flex';
         };
 
-        // --- Ajout : gestion du repli/dépli des détails de la timeline façon target.html ---
+        // --- Ajout : gestion du repli/dépli des détails de la timeline ---
         document.querySelectorAll('.command-toggle').forEach(function (toggle) {
             toggle.addEventListener('click', function () {
                 const commandCollapse = this.closest('.flex-1').querySelector('.command-collapse');
@@ -615,7 +609,7 @@
                 const msg = currentConvMessages[i];
                 if (msg.role === 'user') {
                     if (currentStep) steps.push(currentStep);
-                    currentStep = { prompt: msg.content, responses: [], statuses: [] };
+                    currentStep = { prompt: msg.content, responses: [], statuses: [msg.status || 'done'] };
                 } else if (msg.role === 'assistant') {
                     if (!currentStep) {
                         if (steps.length > 0) {
@@ -634,7 +628,7 @@
             steps.forEach((step, idx) => {
                 // Statut de la dernière réponse assistant de l'étape
                 let lastStatus = step.statuses.length > 0 ? step.statuses[step.statuses.length - 1] : 'done';
-                let statusText = lastStatus === 'pending' ? 'En cours…' : (lastStatus === 'error' ? 'Erreur' : 'Terminé');
+                let statusText = lastStatus === 'pending' ? 'Working…' : (lastStatus === 'error' ? 'Error' : 'Done');
                 let icon, bg, iconColor;
                 if (lastStatus === 'pending') {
                     icon = 'fa-spinner';

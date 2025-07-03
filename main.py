@@ -539,12 +539,11 @@ async def runAgent(sandbox_id):
         prompt = (messages[-1].get("content") if messages else "").strip()
 
         messages.insert(0,{"role": "system", "content": f"Whenever creating or editing file prefers to do it in the sandbox using the tools; Sandbox ID : {sandbox_id} \n Sandbox path: {os.path.join(SANDBOXES_DIR, sandbox_id)}"})
-        full_prompt = f"conversation history : {messages} \n\nPlease respond to the latest message : {prompt}"
+        full_prompt = f"conversation history : {messages} \n\nPlease respond only to the latest message : {prompt}"
         try:
-            queue.put_nowait("...working on it... \n\n")
             response = ""
             with MCPClient(server_params) as tools:
-                agent = CodeAgent(tools=tools, model=model, add_base_tools=True)
+                agent = CodeAgent(tools=tools, model=model, add_base_tools=False)
                 response = agent.run(full_prompt)
                 queue.put_nowait(response)
         except Exception as e:
