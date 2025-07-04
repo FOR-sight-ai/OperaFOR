@@ -139,13 +139,7 @@ jobs:
             ### Downloads
             - **macOS (x64)**: `operafor-executable-v${{ github.run_number  }}-macos-x64.tar.gz`
             - **Windows (x64)**: `operafor-executable-v${{ github.run_number  }}-windows-x64.zip`
-
-            ### Quick Start
-            1. Download l'archive appropriée pour votre plateforme
-            2. Décompressez l'archive
-            3. Suivez les instructions dans `QUICKSTART.md`
-
-            Pour la documentation détaillée, voir le [README](https://github.com/${{ github.repository }}/blob/main/README.md).
+            
           draft: false
           prerelease: false
 
