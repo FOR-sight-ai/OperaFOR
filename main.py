@@ -17,6 +17,25 @@ from datetime import datetime
 import subprocess
 import asyncio
 import threading
+import logging
+import http.client
+
+# Enable HTTP debugging
+http.client.HTTPConnection.debuglevel = 1
+
+# Configure logging to see requests
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] [%(threadName)s] %(message)s",
+    handlers=[
+        logging.FileHandler("app.log"),  # Write to file
+        logging.StreamHandler()          # Also show in console
+    ]
+)
+logging.getLogger().setLevel(logging.DEBUG)
+requests_log = logging.getLogger("requests.packages.urllib3")
+requests_log.setLevel(logging.DEBUG)
+requests_log.propagate = True
 
 # --- FastMCP Server Definition ---
 mcp = FastMCP("OperaFOR")
@@ -165,8 +184,8 @@ def list_sandbox_files(sandbox_id: str) -> List[str]:
             file_path = os.path.join(root, file)
             rel_path = os.path.relpath(file_path, sandbox_path)
 
-            # ignore .git directory and conversation.json
-            if rel_path.startswith('.git/') or rel_path == 'conversation.json':
+            # ignore path containing .git directory and conversation.json
+            if '.git' in rel_path or rel_path.startswith('.git/') or rel_path == 'conversation.json':
                 continue
 
             # Ensure we only return files, not directories
@@ -524,11 +543,16 @@ async def runAgent(sandbox_id):
         model_name = config.get("llm", {}).get("model")
         api_key = config.get("llm", {}).get("apiKey") or config.get("llm", {}).get("api_key")
         endpoint = config.get("llm", {}).get("endpoint") or config.get("llm", {}).get("base_url")
-        from smolagents import OpenAIServerModel
+        from smolagents import OpenAIServerModel, MessageRole
         model = OpenAIServerModel(
             model_id=model_name,
             api_base=endpoint,
-            api_key=api_key
+            api_key=api_key,
+            custom_role_conversions={
+                MessageRole.ASSISTANT: "assistant",
+                MessageRole.USER: "user",
+                MessageRole.SYSTEM: "system",
+            }
         )
         # find corresponding sandbox from sandbox json file
         convs = load_all_sandboxes()
@@ -537,14 +561,19 @@ async def runAgent(sandbox_id):
         messages = conv.get("messages", [])
         # find the last user message
         prompt = (messages[-1].get("content") if messages else "").strip()
-
-        messages.insert(0,{"role": "system", "content": f"Whenever creating or editing file prefers to do it in the sandbox using the tools; Sandbox ID : {sandbox_id} \n Sandbox path: {os.path.join(SANDBOXES_DIR, sandbox_id)}"})
-        full_prompt = f"conversation history : {messages} \n\nPlease respond only to the latest message : {prompt}"
+        instructions = f"Whenever creating or editing files prefers to do it in the sandbox using the tools"
         try:
             response = ""
             with MCPClient(server_params) as tools:
-                agent = CodeAgent(tools=tools, model=model, add_base_tools=False)
-                response = agent.run(full_prompt)
+                agent = CodeAgent(tools=tools, 
+                                  instructions=instructions,
+                                  model=model, 
+                                  planning_interval = 3,
+                                  add_base_tools=False)
+                response = agent.run(prompt, reset = False, additional_args = {
+                    "sandbox_id": sandbox_id,
+                    "sandbox_path": os.path.join(SANDBOXES_DIR, sandbox_id),
+                    "past_conversation_file": os.path.join(SANDBOXES_DIR, sandbox_id, "conversation.json"),})
                 queue.put_nowait(response)
         except Exception as e:
             tb_str = traceback.format_exc()
@@ -677,6 +706,8 @@ async def api_create_sandbox(request: Request):
     convs = load_all_sandboxes()
     convs[conv_id] = conv
     save_all_sandboxes(convs)
+    sandbox_path = os.path.join(SANDBOXES_DIR, conv_id)
+    init_or_get_repo(sandbox_path)
     return conv
 
 @app.post("/sandboxes/{conv_id}")

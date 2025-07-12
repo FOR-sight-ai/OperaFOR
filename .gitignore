@@ -9,3 +9,4 @@ config copy.json
 build
 dist
 OperaFOR.egg-info
+app.log
