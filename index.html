@@ -114,6 +114,98 @@
         #sandboxModal[style*="display: flex"]~#floatingInputBar {
             display: none !important;
         }
+
+        /* Styles pour la vue chat */
+        .chat-view {
+            display: none;
+        }
+
+        .chat-view.active {
+            display: block;
+        }
+
+        .chat-message {
+            margin-bottom: 1rem;
+        }
+
+        .chat-message.user {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .chat-message.assistant {
+            display: flex;
+            justify-content: flex-start;
+        }
+
+        .chat-bubble {
+            max-width: 70%;
+            padding: 0.75rem 1rem;
+            border-radius: 1rem;
+            word-wrap: break-word;
+        }
+
+        .chat-bubble.user {
+            background-color: #3b82f6;
+            color: white;
+            border-bottom-right-radius: 0.25rem;
+        }
+
+        .chat-bubble.assistant {
+            background-color: #f3f4f6;
+            color: #1f2937;
+            border-bottom-left-radius: 0.25rem;
+        }
+
+        .chat-bubble.error {
+            background-color: #fee2e2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+
+        .view-toggle {
+            background-color: #f3f4f6;
+            border-radius: 0.5rem;
+            padding: 0.25rem;
+            display: flex;
+        }
+
+        .view-toggle button {
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            transition: all 0.2s;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .view-toggle button.active {
+            background-color: white;
+            color: #3b82f6;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+
+        .view-toggle button:not(.active) {
+            color: #6b7280;
+        }
+
+        .view-toggle button:not(.active):hover {
+            color: #374151;
+        }
+
+        @media (max-width: 640px) {
+            .view-toggle {
+                padding: 0.125rem;
+            }
+
+            .view-toggle button {
+                padding: 0.375rem 0.5rem;
+                font-size: 0.75rem;
+            }
+
+            .view-toggle button .fas {
+                margin-right: 0.25rem;
+            }
+        }
     </style>
 </head>
 
@@ -150,7 +242,17 @@
                 <button id="sidebar-toggle" class="md:hidden text-gray-500">
                     <i class="fas fa-bars text-xl"></i>
                 </button>
-                <h2 id="currentConvTitle" class="text-lg font-semibold text-gray-800"></h2>
+                <div class="flex items-center space-x-4">
+                    <h2 id="currentConvTitle" class="text-lg font-semibold text-gray-800"></h2>
+                    <div class="view-toggle">
+                        <button id="timelineViewBtn" class="active">
+                            <i class="fas fa-list mr-1"></i>Timeline
+                        </button>
+                        <button id="chatViewBtn">
+                            <i class="fas fa-comments mr-1"></i>Chat
+                        </button>
+                    </div>
+                </div>
                 <div class="flex space-x-2">
                     <button id="renameConvBtn" class="text-gray-500 hover:text-blue-600"><i class="fas fa-edit"></i>
                     </button>
@@ -161,8 +263,13 @@
             <!-- Timeline Panel -->
             <main class="flex-1 overflow-y-auto p-4 bg-gray-50">
                 <div class="max-w-4xl mx-auto">
-                    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                    <!-- Timeline View -->
+                    <div id="timelineView" class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
                         <div id="timelineContainer" class="command-line space-y-6"></div>
+                    </div>
+                    <!-- Chat View -->
+                    <div id="chatView" class="chat-view bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                        <div id="chatContainer" class="space-y-4 min-h-[400px]"></div>
                     </div>
                     <!-- Panneau de configuration caché par défaut -->
                     <div id="configPanel" class="fixed inset-0 bg-black bg-opacity-30 z-30 items-center justify-center"
@@ -324,13 +431,45 @@
                         } else {
                             currentConvId = null;
                             currentConvMessages = [];
-                            document.getElementById('chatHistory').innerHTML = '';
+                            document.getElementById('timelineContainer').innerHTML = '';
+                            document.getElementById('chatContainer').innerHTML = '';
                             document.getElementById('currentConvTitle').textContent = '';
                         }
                     }
                 }
             };
         };
+
+        // Gestionnaires pour les boutons de basculement de vue
+        document.getElementById('timelineViewBtn').onclick = function () {
+            switchView('timeline');
+        };
+
+        document.getElementById('chatViewBtn').onclick = function () {
+            switchView('chat');
+        };
+
+        function switchView(view) {
+            currentView = view;
+
+            // Met à jour les boutons
+            const timelineBtn = document.getElementById('timelineViewBtn');
+            const chatBtn = document.getElementById('chatViewBtn');
+
+            if (view === 'timeline') {
+                timelineBtn.classList.add('active');
+                chatBtn.classList.remove('active');
+                document.getElementById('timelineView').style.display = 'block';
+                document.getElementById('chatView').style.display = 'none';
+            } else {
+                chatBtn.classList.add('active');
+                timelineBtn.classList.remove('active');
+                document.getElementById('timelineView').style.display = 'none';
+                document.getElementById('chatView').style.display = 'block';
+                renderChatView(); // Actualise la vue chat
+            }
+        }
+
         document.getElementById('config').addEventListener('change', async function () {
             try {
                 const configObj = JSON.parse(this.value);
@@ -354,6 +493,7 @@
         let currentConvId = null;
         let isLoadingHistory = false;
         let currentConvMessages = [];
+        let currentView = 'timeline'; // 'timeline' ou 'chat'
 
         async function fetchSandboxes() {
             try {
@@ -435,29 +575,70 @@
             currentConvMessages = conv.messages || [];
             renderHistoryList(await fetchSandboxes());
             document.getElementById('currentConvTitle').textContent = conv.title || '';
-            renderTimeline(); // Met à jour la timeline
+
+            // Met à jour la vue appropriée
+            if (currentView === 'timeline') {
+                renderTimeline();
+            } else {
+                renderChatView();
+            }
         }
 
         function updateLastAssistantMessage(text) {
-            // Met à jour dynamiquement le détail de la dernière étape de la timeline
-            const timeline = document.getElementById('timelineContainer');
-            const steps = timeline.querySelectorAll('.relative.z-10');
-            if (steps.length === 0) return;
-            const lastStep = steps[steps.length - 1];
-            const detailDiv = lastStep.querySelector('.command-collapse .text-sm.text-gray-700');
-            if (detailDiv) {
-                detailDiv.innerHTML = text.replace(/\n/g, '<br>');
-            }
-            // Met à jour le statut et l'icône si besoin
-            const statusDiv = lastStep.querySelector('.mt-1.text-sm.text-gray-500');
-            const icon = lastStep.querySelector('.flex-shrink-0 i');
-            if (statusDiv && icon) {
-                statusDiv.textContent = 'Working…';
-                icon.classList.remove('fa-check', 'text-green-600', 'bg-green-100');
-                icon.classList.add('fa-spinner', 'text-yellow-500', 'animate-spin');
-                lastStep.querySelector('.flex-shrink-0').className = 'flex-shrink-0 h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center mr-4';
+            if (currentView === 'timeline') {
+                // Met à jour dynamiquement le détail de la dernière étape de la timeline
+                const timeline = document.getElementById('timelineContainer');
+                const steps = timeline.querySelectorAll('.relative.z-10');
+                if (steps.length === 0) return;
+                const lastStep = steps[steps.length - 1];
+                const detailDiv = lastStep.querySelector('.command-collapse .text-sm.text-gray-700');
+                if (detailDiv) {
+                    detailDiv.innerHTML = text.replace(/\n/g, '<br>');
+                }
+                // Met à jour le statut et l'icône si besoin
+                const statusDiv = lastStep.querySelector('.mt-1.text-sm.text-gray-500');
+                const icon = lastStep.querySelector('.flex-shrink-0 i');
+                if (statusDiv && icon) {
+                    statusDiv.textContent = 'Working…';
+                    icon.classList.remove('fa-check', 'text-green-600', 'bg-green-100');
+                    icon.classList.add('fa-spinner', 'text-yellow-500', 'animate-spin');
+                    lastStep.querySelector('.flex-shrink-0').className = 'flex-shrink-0 h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center mr-4';
+                }
+            } else {
+                // Met à jour le dernier message dans la vue chat
+                const chatContainer = document.getElementById('chatContainer');
+                const messages = chatContainer.querySelectorAll('.chat-message.assistant');
+                if (messages.length === 0) return;
+
+                const lastMessage = messages[messages.length - 1];
+                const bubble = lastMessage.querySelector('.chat-bubble');
+                if (bubble) {
+                    // Supprime l'ancien indicateur de statut s'il existe
+                    const oldStatus = bubble.querySelector('.text-xs.text-gray-500');
+                    if (oldStatus) oldStatus.remove();
+
+                    bubble.innerHTML = text.replace(/\n/g, '<br>');
+
+                    // Ajoute l'indicateur "en cours"
+                    const statusDiv = document.createElement('div');
+                    statusDiv.className = 'text-xs text-gray-500 mt-1';
+                    statusDiv.innerHTML = '<i class="fas fa-spinner animate-spin mr-1"></i>En cours...';
+                    bubble.appendChild(statusDiv);
+                }
+
+                // Défile vers le bas
+                chatContainer.scrollTop = chatContainer.scrollHeight;
             }
         }
+
+        function updateCurrentView() {
+            if (currentView === 'timeline') {
+                renderTimeline();
+            } else {
+                renderChatView();
+            }
+        }
+
         async function run(userInput) {
             // Si userInput n'est pas fourni, on prend la valeur du champ
             if (typeof userInput !== 'string') {
@@ -474,7 +655,7 @@
             }
             if (needToAddUserMsg) {
                 currentConvMessages = (currentConvMessages || []).concat([{ role: 'user', content: userInput, status: 'pending' }]);
-                renderTimeline(); // Affiche l'étape "En cours..."
+                updateCurrentView(); // Affiche l'étape "En cours..."
                 await addMessageToSandbox(currentConvId, { role: 'user', content: userInput, status: 'pending' });
             }
             document.getElementById('userInput').value = '';
@@ -485,7 +666,7 @@
             } catch (e) {
                 // Affiche l'erreur dans la timeline
                 currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: 'Erreur: configuration JSON invalide', status: 'error' }]);
-                renderTimeline();
+                updateCurrentView();
                 await addMessageToSandbox(currentConvId, { role: 'assistant', content: 'Erreur: configuration JSON invalide', status: 'error' });
                 return;
             }
@@ -507,7 +688,7 @@
                     updateLastAssistantMessage('Erreur: Pas de flux de réponse.');
                     // Remplace la dernière réponse assistant temporaire par une erreur
                     currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: 'Erreur: Pas de flux de réponse.', status: 'error' }]);
-                    renderTimeline();
+                    updateCurrentView();
                     await addMessageToSandbox(currentConvId, { role: 'assistant', content: 'Erreur: Pas de flux de réponse.', status: 'error' });
                     return;
                 }
@@ -544,11 +725,11 @@
                     } else {
                         currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: responseText, status: 'done' }]);
                     }
-                    renderTimeline();
+                    updateCurrentView();
                 }
             } catch (e) {
                 updateLastAssistantMessage('Erreur: ' + e);
-                renderTimeline();
+                updateCurrentView();
             }
         }
         // Envoi avec bouton ou Entrée
@@ -583,6 +764,47 @@
             document.getElementById('configPanel').style.display = 'none';
             document.getElementById('chatContainer').style.display = 'flex';
         };
+
+        function renderChatView() {
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.innerHTML = '';
+
+            if (!currentConvMessages || currentConvMessages.length === 0) {
+                chatContainer.innerHTML = '<div class="text-center text-gray-500 py-8">Aucun message dans cette conversation</div>';
+                return;
+            }
+
+            currentConvMessages.forEach(msg => {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `chat-message ${msg.role}`;
+
+                const bubbleDiv = document.createElement('div');
+                bubbleDiv.className = `chat-bubble ${msg.role}`;
+
+                // Ajoute une classe d'erreur si le statut est 'error'
+                if (msg.status === 'error') {
+                    bubbleDiv.classList.add('error');
+                }
+
+                // Formate le contenu du message
+                const content = msg.content || '';
+                bubbleDiv.innerHTML = content.replace(/\n/g, '<br>');
+
+                // Ajoute un indicateur de statut pour les messages en cours
+                if (msg.status === 'pending') {
+                    const statusDiv = document.createElement('div');
+                    statusDiv.className = 'text-xs text-gray-500 mt-1';
+                    statusDiv.innerHTML = '<i class="fas fa-spinner animate-spin mr-1"></i>En cours...';
+                    bubbleDiv.appendChild(statusDiv);
+                }
+
+                messageDiv.appendChild(bubbleDiv);
+                chatContainer.appendChild(messageDiv);
+            });
+
+            // Défile vers le bas
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
 
         function renderTimeline() {
             const timeline = document.getElementById('timelineContainer');
@@ -739,7 +961,7 @@
                     // Supprime le dernier step (jusqu'au dernier user)
                     const removed = removeLastStepFromMessages();
                     await patchMessagesOnBackend();
-                    renderTimeline();
+                    updateCurrentView();
                     // Relance le dernier prompt utilisateur supprimé
                     let lastUserMsg = null;
                     for (let i = removed.length - 1; i >= 0; i--) {
@@ -752,7 +974,7 @@
                         // Ajoute le message utilisateur à l'historique local et backend, puis relance run()
                         currentConvMessages = currentConvMessages.concat([lastUserMsg]);
                         await patchMessagesOnBackend();
-                        renderTimeline();
+                        updateCurrentView();
                         // Simule l'envoi du prompt (comme run()), mais sans double ajout
                         run(lastUserMsg.content);
                     }
@@ -764,7 +986,7 @@
                     if (idx !== steps.length - 1) return;
                     removeLastStepFromMessages();
                     await patchMessagesOnBackend();
-                    renderTimeline();
+                    updateCurrentView();
                 };
                 if (revertBtn) revertBtn.onclick = async function () {
                     menu.classList.add('hidden');
@@ -772,7 +994,7 @@
                     // Met à jour l'historique local et backend
                     currentConvMessages = keepMessagesUpToStep(currentConvMessages, idx);
                     await patchMessagesOnBackend();
-                    renderTimeline();
+                    updateCurrentView();
                 };
             });
         }
