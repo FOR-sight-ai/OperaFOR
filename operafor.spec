@@ -1,14 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
 block_cipher = None
+
+# Collect metadata for packages that need it
+datas = [('index.html', '.')]
+datas += copy_metadata('fastmcp')
+datas += copy_metadata('mcp')
+datas += copy_metadata('smolagents')
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('index.html', '.')],
-    hiddenimports=['aiohttp', 'smolagents.prompts'],
+    datas=datas,
+    hiddenimports=['aiohttp', 'smolagents.prompts', 'fastmcp', 'mcp'],
     hookspath=['hooks'],
     hooksconfig={},
     runtime_hooks=[],
