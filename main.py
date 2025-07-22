@@ -20,21 +20,29 @@ import threading
 import logging
 import http.client
 
-# Enable HTTP debugging
-http.client.HTTPConnection.debuglevel = 1
+# HTTP debugging disabled by default (can be enabled for troubleshooting)
+# http.client.HTTPConnection.debuglevel = 1
 
-# Configure logging to see requests
+# Configure logging - INFO level for console, DEBUG for file to capture all errors
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [%(threadName)s] %(message)s",
     handlers=[
-        logging.FileHandler("app.log"),  # Write to file
-        logging.StreamHandler()          # Also show in console
+        logging.FileHandler("app.log"), 
+        logging.StreamHandler()          # Show INFO and above in console
     ]
 )
-logging.getLogger().setLevel(logging.DEBUG)
+
+# Set up file handler to capture all debug info and errors
+file_handler = logging.FileHandler("app.log")
+file_handler.setLevel(logging.DEBUG)
+file_formatter = logging.Formatter("%(asctime)s [%(levelname)s] [%(threadName)s] %(name)s: %(message)s")
+file_handler.setFormatter(file_formatter)
+
+# Disable verbose network logging by default but ensure errors are captured
 requests_log = logging.getLogger("requests.packages.urllib3")
-requests_log.setLevel(logging.DEBUG)
+requests_log.setLevel(logging.WARNING)  # Only show warnings and errors
+requests_log.addHandler(file_handler)
 requests_log.propagate = True
 
 # --- FastMCP Server Definition ---
@@ -855,6 +863,18 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] [%(threadName)s] %(message)s",
 )
 logger = logging.getLogger("mcp_app")
+
+# Ensure errors and exceptions are written to file with full stack traces
+def log_exception(exc_type, exc_value, exc_traceback):
+    """Custom exception handler to log uncaught exceptions to file."""
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    
+    logger.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+# Set custom exception handler
+sys.excepthook = log_exception
 
 
 if __name__ == "__main__":

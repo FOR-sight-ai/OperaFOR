@@ -243,15 +243,15 @@
                     <i class="fas fa-bars text-xl"></i>
                 </button>
                 <div class="flex items-center space-x-4">
-                    <h2 id="currentConvTitle" class="text-lg font-semibold text-gray-800"></h2>
                     <div class="view-toggle">
-                        <button id="timelineViewBtn" class="active">
+                        <button id="timelineViewBtn">
                             <i class="fas fa-list mr-1"></i>Timeline
                         </button>
-                        <button id="chatViewBtn">
+                        <button id="chatViewBtn" class="active">
                             <i class="fas fa-comments mr-1"></i>Chat
                         </button>
                     </div>
+                    <h2 id="currentConvTitle" class="text-lg font-semibold text-gray-800"></h2>
                 </div>
                 <div class="flex space-x-2">
                     <button id="renameConvBtn" class="text-gray-500 hover:text-blue-600"><i class="fas fa-edit"></i>
@@ -263,13 +263,14 @@
             <!-- Timeline Panel -->
             <main class="flex-1 overflow-y-auto p-4 bg-gray-50">
                 <div class="max-w-4xl mx-auto">
+                    <!-- Chat View -->
+                    <div id="chatView"
+                        class="chat-view active bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                        <div id="chatContainer" class="space-y-4 min-h-[400px]"></div>
+                    </div>
                     <!-- Timeline View -->
                     <div id="timelineView" class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
                         <div id="timelineContainer" class="command-line space-y-6"></div>
-                    </div>
-                    <!-- Chat View -->
-                    <div id="chatView" class="chat-view bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-                        <div id="chatContainer" class="space-y-4 min-h-[400px]"></div>
                     </div>
                     <!-- Panneau de configuration caché par défaut -->
                     <div id="configPanel" class="fixed inset-0 bg-black bg-opacity-30 z-30 items-center justify-center"
@@ -357,6 +358,9 @@
             }
         }
         window.onload = async function () {
+            // Initialise la vue par défaut (chat)
+            switchView('chat');
+
             const configObj = await loadConfig();
             document.getElementById('config').value = JSON.stringify(configObj, null, 2);
             const convs = await fetchSandboxes();
@@ -466,7 +470,6 @@
                 timelineBtn.classList.remove('active');
                 document.getElementById('timelineView').style.display = 'none';
                 document.getElementById('chatView').style.display = 'block';
-                renderChatView(); // Actualise la vue chat
             }
         }
 
@@ -493,7 +496,7 @@
         let currentConvId = null;
         let isLoadingHistory = false;
         let currentConvMessages = [];
-        let currentView = 'timeline'; // 'timeline' ou 'chat'
+        let currentView = 'chat'; // 'timeline' ou 'chat'
 
         async function fetchSandboxes() {
             try {
@@ -576,12 +579,9 @@
             renderHistoryList(await fetchSandboxes());
             document.getElementById('currentConvTitle').textContent = conv.title || '';
 
-            // Met à jour la vue appropriée
-            if (currentView === 'timeline') {
-                renderTimeline();
-            } else {
-                renderChatView();
-            }
+            // Met à jour toujours les deux vues pour éviter les problèmes de synchronisation
+            renderTimeline();
+            renderChatView();
         }
 
         function updateLastAssistantMessage(text) {
@@ -632,11 +632,9 @@
         }
 
         function updateCurrentView() {
-            if (currentView === 'timeline') {
-                renderTimeline();
-            } else {
-                renderChatView();
-            }
+            // Met à jour toujours les deux vues pour éviter les problèmes de synchronisation
+            renderTimeline();
+            renderChatView();
         }
 
         async function run(userInput) {
@@ -762,7 +760,6 @@
                 // Ignore erreurs de parsing
             }
             document.getElementById('configPanel').style.display = 'none';
-            document.getElementById('chatContainer').style.display = 'flex';
         };
 
         function renderChatView() {
