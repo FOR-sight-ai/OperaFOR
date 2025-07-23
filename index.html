@@ -584,7 +584,7 @@
             renderChatView();
         }
 
-        function updateLastAssistantMessage(text) {
+        function updateLastAssistantMessage(text, isComplete = false) {
             if (currentView === 'timeline') {
                 // Met à jour dynamiquement le détail de la dernière étape de la timeline
                 const timeline = document.getElementById('timelineContainer');
@@ -619,11 +619,13 @@
 
                     bubble.innerHTML = text.replace(/\n/g, '<br>');
 
-                    // Ajoute l'indicateur "en cours"
-                    const statusDiv = document.createElement('div');
-                    statusDiv.className = 'text-xs text-gray-500 mt-1';
-                    statusDiv.innerHTML = '<i class="fas fa-spinner animate-spin mr-1"></i>En cours...';
-                    bubble.appendChild(statusDiv);
+                    // Ajoute l'indicateur "Working..." seulement si pas terminé
+                    if (!isComplete) {
+                        const statusDiv = document.createElement('div');
+                        statusDiv.className = 'text-xs text-gray-500 mt-1';
+                        statusDiv.innerHTML = '<i class="fas fa-spinner animate-spin mr-1"></i>Working...';
+                        bubble.appendChild(statusDiv);
+                    }
                 }
 
                 // Défile vers le bas
@@ -653,7 +655,7 @@
             }
             if (needToAddUserMsg) {
                 currentConvMessages = (currentConvMessages || []).concat([{ role: 'user', content: userInput, status: 'pending' }]);
-                updateCurrentView(); // Affiche l'étape "En cours..."
+                updateCurrentView(); // Affiche l'étape "Working..."
                 await addMessageToSandbox(currentConvId, { role: 'user', content: userInput, status: 'pending' });
             }
             document.getElementById('userInput').value = '';
@@ -720,13 +722,15 @@
                     if (isError) {
                         currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: errorMsg, status: 'error' }]);
                         await addMessageToSandbox(currentConvId, { role: 'assistant', content: errorMsg, status: 'error' });
+                        updateLastAssistantMessage(errorMsg, true);
                     } else {
                         currentConvMessages = currentConvMessages.concat([{ role: 'assistant', content: responseText, status: 'done' }]);
+                        updateLastAssistantMessage(responseText, true);
                     }
                     updateCurrentView();
                 }
             } catch (e) {
-                updateLastAssistantMessage('Erreur: ' + e);
+                updateLastAssistantMessage('Erreur: ' + e, true);
                 updateCurrentView();
             }
         }
@@ -791,7 +795,7 @@
                 if (msg.status === 'pending') {
                     const statusDiv = document.createElement('div');
                     statusDiv.className = 'text-xs text-gray-500 mt-1';
-                    statusDiv.innerHTML = '<i class="fas fa-spinner animate-spin mr-1"></i>En cours...';
+                    statusDiv.innerHTML = '<i class="fas fa-spinner animate-spin mr-1"></i>Working...';
                     bubbleDiv.appendChild(statusDiv);
                 }
 

@@ -199,6 +199,8 @@ def list_sandbox_files(sandbox_id: str) -> List[str]:
             # Ensure we only return files, not directories
             if os.path.isfile(file_path):
                 output_files.append(rel_path)
+    if len(output_files) == 0:
+        output_files.append("No files found in this sandbox.")
     print(f"Files in sandbox {sandbox_id}: {output_files}")
     return output_files
 
