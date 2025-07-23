@@ -737,7 +737,7 @@ async def api_add_message(conv_id: str, request: Request):
     return {"status": "ok"}
 
 @app.delete("/sandboxes/{conv_id}")
-async def api_delete_sandbox(conv_id: str):
+async def api_delete_sandbox(conv_id: str, delete_folder: bool = True):
     convs = load_all_sandboxes()
     if conv_id not in convs:
         return JSONResponse(status_code=404, content={"error": "Not found"})
@@ -745,12 +745,17 @@ async def api_delete_sandbox(conv_id: str):
     sandbox_path = get_sandbox_path(conv_id)
     del convs[conv_id]
     save_all_sandboxes(convs)
-    # Suppression du dossier sandbox correspondant
-    import shutil
-    if os.path.exists(sandbox_path):
-        shutil.rmtree(sandbox_path)
-    logging.info(f"Deleted sandbox {conv_id} at path {sandbox_path}")
-    return {"status": "deleted"}
+    
+    # Conditionally delete the sandbox folder
+    if delete_folder:
+        import shutil
+        if os.path.exists(sandbox_path):
+            shutil.rmtree(sandbox_path)
+        logging.info(f"Deleted sandbox {conv_id} and folder at path {sandbox_path}")
+    else:
+        logging.info(f"Deleted sandbox {conv_id} but kept folder at path {sandbox_path}")
+    
+    return {"status": "deleted", "folder_deleted": delete_folder}
 
 @app.patch("/sandboxes/{conv_id}")
 async def api_patch_sandbox(conv_id: str, request: Request):
