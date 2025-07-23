@@ -507,16 +507,6 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory=os.path.dirname(os.path.abspath(__file__))), name="static")
 
 def load_all_sandboxes():
-    if not os.path.exists(CONV_FILE):
-        with open(CONV_FILE, 'w') as f:           
-            first_sandbox = {
-                "id": str(uuid.uuid4()),
-                "title": "Welcome",
-                "messages": [
-                    {"role": "assistant", "content": "Welcome ! What can I do for you today? Don't forget to configure your API key in the configuration panel."}
-                ]
-            }
-            json.dump({first_sandbox["id"]: first_sandbox}, f)
     with open(CONV_FILE, 'r') as f:
         return json.load(f)
 
@@ -751,13 +741,15 @@ async def api_delete_sandbox(conv_id: str):
     convs = load_all_sandboxes()
     if conv_id not in convs:
         return JSONResponse(status_code=404, content={"error": "Not found"})
+    
+    sandbox_path = get_sandbox_path(conv_id)
     del convs[conv_id]
     save_all_sandboxes(convs)
     # Suppression du dossier sandbox correspondant
     import shutil
-    sandbox_path = get_sandbox_path(conv_id)
     if os.path.exists(sandbox_path):
         shutil.rmtree(sandbox_path)
+    logging.info(f"Deleted sandbox {conv_id} at path {sandbox_path}")
     return {"status": "deleted"}
 
 @app.patch("/sandboxes/{conv_id}")

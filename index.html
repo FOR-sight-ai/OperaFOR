@@ -115,10 +115,6 @@
             display: none !important;
         }
 
-        #folderModal[style*="display: flex"]~#floatingInputBar {
-            display: none !important;
-        }
-
         /* Styles pour la vue chat */
         .chat-view {
             display: none;
@@ -258,9 +254,7 @@
                     <h2 id="currentConvTitle" class="text-lg font-semibold text-gray-800"></h2>
                 </div>
                 <div class="flex space-x-2">
-                    <button id="renameConvBtn" class="text-gray-500 hover:text-blue-600"><i class="fas fa-edit"></i>
-                    </button>
-                    <button id="changeFolderBtn" class="text-gray-500 hover:text-blue-600" title="Change Sandbox Folder"><i class="fas fa-folder"></i>
+                    <button id="changeFolderBtn" class="text-gray-500 hover:text-blue-600" title="Edit Sandbox"><i class="fas fa-edit"></i>
                     </button>
                     <button id="deleteConvBtn" class="text-gray-500 hover:text-red-600"><i class="fas fa-trash"></i>
                     </button>
@@ -295,37 +289,27 @@
                     <div id="sandboxModal" class="fixed inset-0 bg-black bg-opacity-30 z-40 items-center justify-center"
                         style="display:none;">
                         <div
-                            class="bg-white rounded-lg shadow-lg p-6 w-full max-w-sm mx-auto flex flex-col items-center">
-                            <h3 class="text-lg font-semibold mb-4">Sandbox Title</h3>
+                            class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md mx-auto flex flex-col">
+                            <h3 id="sandboxModalTitle" class="text-lg font-semibold mb-4">Sandbox Title</h3>
                             <input id="sandboxTitleInput" class="w-full border border-gray-300 rounded p-2 mb-4"
                                 placeholder="Titre...">
-                            <div class="flex space-x-2">
-                                <button id="sandboxModalOk"
-                                    class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded">OK</button>
+                            
+                            <!-- Folder settings section (only visible when editing) -->
+                            <div id="folderSettings" class="mb-4" style="display:none;">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Sandbox Folder</label>
+                                <input id="sandboxFolderInput" class="w-full border border-gray-300 rounded p-2 mb-3"
+                                    placeholder="Enter folder path..." type="text">
+                                <div class="flex items-center">
+                                    <input type="checkbox" id="sandboxCopyFilesCheckbox" checked class="mr-2">
+                                    <label for="sandboxCopyFilesCheckbox" class="text-sm text-gray-700">Copy existing files to new location</label>
+                                </div>
+                            </div>
+                            
+                            <div class="flex space-x-2 justify-end">
                                 <button id="sandboxModalCancel"
                                     class="bg-gray-300 hover:bg-gray-400 text-gray-800 py-2 px-4 rounded">Cancel</button>
-                        </div>
-                    </div>
-                    
-                    <!-- Modal pour changer le dossier du sandbox -->
-                    <div id="folderModal" class="fixed inset-0 bg-black bg-opacity-30 z-40 items-center justify-center"
-                        style="display:none;">
-                        <div
-                            class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md mx-auto flex flex-col">
-                            <h3 class="text-lg font-semibold mb-4">Change Sandbox Folder</h3>
-                            <p class="text-sm text-gray-600 mb-3">Select a new folder path for this sandbox:</p>
-                            <input id="folderPathInput" class="w-full border border-gray-300 rounded p-2 mb-3"
-                                placeholder="Enter folder path..." type="text">
-                            <div class="flex items-center mb-4">
-                                <input type="checkbox" id="copyFilesCheckbox" checked class="mr-2">
-                                <label for="copyFilesCheckbox" class="text-sm text-gray-700">Copy existing files to new location</label>
-                            </div>
-                            <div class="flex space-x-2 justify-end">
-                                <button id="folderModalCancel"
-                                    class="bg-gray-300 hover:bg-gray-400 text-gray-800 py-2 px-4 rounded">Cancel</button>
-                                <button id="folderModalOk"
-                                    class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded">Change</button>
-                            </div>
+                                <button id="sandboxModalOk"
+                                    class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded">OK</button>
                         </div>
                     </div>
                 </div>
@@ -399,59 +383,100 @@
             const addBtn = document.getElementById('addSandboxBtn');
             const modal = document.getElementById('sandboxModal');
             const input = document.getElementById('sandboxTitleInput');
+            const folderInput = document.getElementById('sandboxFolderInput');
+            const folderSettings = document.getElementById('folderSettings');
+            const copyFilesCheckbox = document.getElementById('sandboxCopyFilesCheckbox');
             const okBtn = document.getElementById('sandboxModalOk');
             const cancelBtn = document.getElementById('sandboxModalCancel');
+            const modalTitle = document.getElementById('sandboxModalTitle');
+            
+            let modalMode = 'create'; // 'create', 'rename', or 'edit'
+            
             addBtn.onclick = function () {
+                modalMode = 'create';
+                modalTitle.textContent = 'New Sandbox';
                 input.value = '';
+                folderSettings.style.display = 'none';
                 modal.style.display = 'flex';
                 setTimeout(() => input.focus(), 100);
             };
+            
             okBtn.onclick = async function () {
                 const title = input.value.trim();
-                if (title) {
-                    modal.style.display = 'none';
+                if (!title) {
+                    input.focus();
+                    return;
+                }
+                
+                modal.style.display = 'none';
+                
+                if (modalMode === 'create') {
                     const newConv = await createSandbox(title);
                     if (newConv && newConv.id) {
                         await loadHistoryPanel();
                         await loadSandbox(newConv.id);
                     }
-                } else {
-                    input.focus();
+                } else if (modalMode === 'rename') {
+                    const ok = await renameSandbox(currentConvId, title);
+                    if (ok) {
+                        await loadHistoryPanel();
+                        await loadSandbox(currentConvId);
+                    }
+                } else if (modalMode === 'edit') {
+                    // Handle both rename and folder change
+                    const renameOk = await renameSandbox(currentConvId, title);
+                    let folderOk = true;
+                    
+                    const newPath = folderInput.value.trim();
+                    if (newPath) {
+                        const copyFiles = copyFilesCheckbox.checked;
+                        folderOk = await changeSandboxFolder(currentConvId, newPath, copyFiles);
+                        if (!folderOk) {
+                            alert('Failed to change sandbox folder. Please check the path and try again.');
+                        }
+                    }
+                    
+                    if (renameOk && folderOk) {
+                        if (newPath) {
+                            alert('Sandbox updated successfully!');
+                        }
+                        await loadHistoryPanel();
+                        await loadSandbox(currentConvId);
+                    }
                 }
             };
+            
             cancelBtn.onclick = function () {
                 modal.style.display = 'none';
             };
+            
             input.addEventListener('keydown', function (e) {
                 if (e.key === 'Enter') okBtn.click();
                 if (e.key === 'Escape') cancelBtn.click();
             });
-            const renameBtn = document.getElementById('renameConvBtn');
+            
+            folderInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') okBtn.click();
+                if (e.key === 'Escape') cancelBtn.click();
+            });
             const deleteBtn = document.getElementById('deleteConvBtn');
-            renameBtn.onclick = function () {
+            const changeFolderBtn = document.getElementById('changeFolderBtn');
+            
+            changeFolderBtn.onclick = function () {
                 if (!currentConvId) return;
-                // Réutilise la modale pour renommer
+                modalMode = 'edit';
+                modalTitle.textContent = 'Edit Sandbox';
                 input.value = document.getElementById('currentConvTitle').textContent;
+                folderInput.value = '';
+                copyFilesCheckbox.checked = true;
+                folderSettings.style.display = 'block';
                 modal.style.display = 'flex';
                 setTimeout(() => input.focus(), 100);
-                okBtn.onclick = async function () {
-                    const newTitle = input.value.trim();
-                    if (newTitle) {
-                        modal.style.display = 'none';
-                        const ok = await renameSandbox(currentConvId, newTitle);
-                        if (ok) {
-                            await loadHistoryPanel();
-                            await loadSandbox(currentConvId);
-                        }
-                    } else {
-                        alert('Title cannot be empty.');
-                        input.focus();
-                    }
-                };
             };
+            
             deleteBtn.onclick = async function () {
                 if (!currentConvId) return;
-                if (confirm('Delete Sandbox ?')) {
+                if (confirm('Delete Sandbox (folder will also be deleted)?')) {
                     const ok = await deleteSandbox(currentConvId);
                     if (ok) {
                         await loadHistoryPanel();
@@ -469,49 +494,6 @@
                     }
                 }
             };
-            
-            const changeFolderBtn = document.getElementById('changeFolderBtn');
-            const folderModal = document.getElementById('folderModal');
-            const folderPathInput = document.getElementById('folderPathInput');
-            const folderOkBtn = document.getElementById('folderModalOk');
-            const folderCancelBtn = document.getElementById('folderModalCancel');
-            const copyFilesCheckbox = document.getElementById('copyFilesCheckbox');
-            
-            changeFolderBtn.onclick = function () {
-                if (!currentConvId) return;
-                folderPathInput.value = '';
-                copyFilesCheckbox.checked = true;
-                folderModal.style.display = 'flex';
-                setTimeout(() => folderPathInput.focus(), 100);
-            };
-            
-            folderOkBtn.onclick = async function () {
-                const newPath = folderPathInput.value.trim();
-                if (newPath) {
-                    folderModal.style.display = 'none';
-                    const copyFiles = copyFilesCheckbox.checked;
-                    const ok = await changeSandboxFolder(currentConvId, newPath, copyFiles);
-                    if (ok) {
-                        alert('Sandbox folder changed successfully!');
-                        await loadHistoryPanel();
-                        await loadSandbox(currentConvId);
-                    } else {
-                        alert('Failed to change sandbox folder. Please check the path and try again.');
-                    }
-                } else {
-                    alert('Please enter a folder path.');
-                    folderPathInput.focus();
-                }
-            };
-            
-            folderCancelBtn.onclick = function () {
-                folderModal.style.display = 'none';
-            };
-            
-            folderPathInput.addEventListener('keydown', function (e) {
-                if (e.key === 'Enter') folderOkBtn.click();
-                if (e.key === 'Escape') folderCancelBtn.click();
-            });
         };
 
         // Gestionnaires pour les boutons de basculement de vue
@@ -601,6 +583,7 @@
         function renderHistoryList(convs) {
             const ul = document.getElementById('historyList');
             ul.innerHTML = '';
+
             convs.forEach(c => {
                 const li = document.createElement('li');
                 li.className = 'p-2 rounded hover:bg-gray-100 cursor-pointer flex items-center';
@@ -857,7 +840,7 @@
             chatContainer.innerHTML = '';
 
             if (!currentConvMessages || currentConvMessages.length === 0) {
-                chatContainer.innerHTML = '<div class="text-center text-gray-500 py-8">Aucun message dans cette conversation</div>';
+                chatContainer.innerHTML = '<div class="text-center text-gray-500 py-8">Welcome ! What can I do for you today? Don\'t forget to configure your API key in the configuration panel.</div>';
                 return;
             }
 
@@ -896,7 +879,12 @@
         function renderTimeline() {
             const timeline = document.getElementById('timelineContainer');
             timeline.innerHTML = '';
-            if (!currentConvMessages || currentConvMessages.length === 0) return;
+            
+            if (!currentConvMessages || currentConvMessages.length === 0) {
+                timeline.innerHTML = '<div class="text-center text-gray-500 py-8">Welcome ! What can I do for you today? Don\'t forget to configure your API key in the configuration panel.</div>';
+                return;
+            }
+            
             // Regroupement correct des étapes : chaque user suivi de 1 ou plusieurs assistant
             const steps = [];
             let currentStep = null;
