@@ -115,6 +115,10 @@
             display: none !important;
         }
 
+        #folderModal[style*="display: flex"]~#floatingInputBar {
+            display: none !important;
+        }
+
         /* Styles pour la vue chat */
         .chat-view {
             display: none;
@@ -256,6 +260,8 @@
                 <div class="flex space-x-2">
                     <button id="renameConvBtn" class="text-gray-500 hover:text-blue-600"><i class="fas fa-edit"></i>
                     </button>
+                    <button id="changeFolderBtn" class="text-gray-500 hover:text-blue-600" title="Change Sandbox Folder"><i class="fas fa-folder"></i>
+                    </button>
                     <button id="deleteConvBtn" class="text-gray-500 hover:text-red-600"><i class="fas fa-trash"></i>
                     </button>
                 </div>
@@ -298,6 +304,27 @@
                                     class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded">OK</button>
                                 <button id="sandboxModalCancel"
                                     class="bg-gray-300 hover:bg-gray-400 text-gray-800 py-2 px-4 rounded">Cancel</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Modal pour changer le dossier du sandbox -->
+                    <div id="folderModal" class="fixed inset-0 bg-black bg-opacity-30 z-40 items-center justify-center"
+                        style="display:none;">
+                        <div
+                            class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md mx-auto flex flex-col">
+                            <h3 class="text-lg font-semibold mb-4">Change Sandbox Folder</h3>
+                            <p class="text-sm text-gray-600 mb-3">Select a new folder path for this sandbox:</p>
+                            <input id="folderPathInput" class="w-full border border-gray-300 rounded p-2 mb-3"
+                                placeholder="Enter folder path..." type="text">
+                            <div class="flex items-center mb-4">
+                                <input type="checkbox" id="copyFilesCheckbox" checked class="mr-2">
+                                <label for="copyFilesCheckbox" class="text-sm text-gray-700">Copy existing files to new location</label>
+                            </div>
+                            <div class="flex space-x-2 justify-end">
+                                <button id="folderModalCancel"
+                                    class="bg-gray-300 hover:bg-gray-400 text-gray-800 py-2 px-4 rounded">Cancel</button>
+                                <button id="folderModalOk"
+                                    class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded">Change</button>
                             </div>
                         </div>
                     </div>
@@ -442,6 +469,49 @@
                     }
                 }
             };
+            
+            const changeFolderBtn = document.getElementById('changeFolderBtn');
+            const folderModal = document.getElementById('folderModal');
+            const folderPathInput = document.getElementById('folderPathInput');
+            const folderOkBtn = document.getElementById('folderModalOk');
+            const folderCancelBtn = document.getElementById('folderModalCancel');
+            const copyFilesCheckbox = document.getElementById('copyFilesCheckbox');
+            
+            changeFolderBtn.onclick = function () {
+                if (!currentConvId) return;
+                folderPathInput.value = '';
+                copyFilesCheckbox.checked = true;
+                folderModal.style.display = 'flex';
+                setTimeout(() => folderPathInput.focus(), 100);
+            };
+            
+            folderOkBtn.onclick = async function () {
+                const newPath = folderPathInput.value.trim();
+                if (newPath) {
+                    folderModal.style.display = 'none';
+                    const copyFiles = copyFilesCheckbox.checked;
+                    const ok = await changeSandboxFolder(currentConvId, newPath, copyFiles);
+                    if (ok) {
+                        alert('Sandbox folder changed successfully!');
+                        await loadHistoryPanel();
+                        await loadSandbox(currentConvId);
+                    } else {
+                        alert('Failed to change sandbox folder. Please check the path and try again.');
+                    }
+                } else {
+                    alert('Please enter a folder path.');
+                    folderPathInput.focus();
+                }
+            };
+            
+            folderCancelBtn.onclick = function () {
+                folderModal.style.display = 'none';
+            };
+            
+            folderPathInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') folderOkBtn.click();
+                if (e.key === 'Escape') folderCancelBtn.click();
+            });
         };
 
         // Gestionnaires pour les boutons de basculement de vue
@@ -754,6 +824,22 @@
                 body: JSON.stringify({ title: newTitle })
             });
             return res.ok;
+        }
+        async function changeSandboxFolder(convId, newPath, copyFiles = true) {
+            try {
+                const res = await fetch(`/sandboxes/${convId}/change_folder`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        path: newPath,
+                        copy_files: copyFiles 
+                    })
+                });
+                return res.ok;
+            } catch (e) {
+                console.error('Error changing sandbox folder:', e);
+                return false;
+            }
         }
         // Gestion du bouton 'Enregistrer et fermer' du panneau de configuration
         document.getElementById('saveCloseConfigBtn').onclick = async function () {

@@ -185,7 +185,7 @@ def list_sandbox_files(sandbox_id: str) -> List[str]:
         List[str]: A list containing the paths of files in the sandbox.
     """
     # return the content of the output folder
-    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    sandbox_path = get_sandbox_path(sandbox_id)
     output_files = []
     for root, _, files in os.walk(sandbox_path):
         for file in files:
@@ -214,7 +214,7 @@ def read_file_sandbox(sandbox_id: str, file_name:str) -> str:
     Returns:
         str: The content of the file.
     """
-    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    sandbox_path = get_sandbox_path(sandbox_id)
     file_path = os.path.join(sandbox_path, file_name)
     
     if not os.path.exists(file_path):
@@ -238,7 +238,7 @@ def save_file_sandbox(sandbox_id: str, file_name: str, content: str) -> bool:
     Returns:
         True if the file was written successfully
     """
-    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    sandbox_path = get_sandbox_path(sandbox_id)
     file_path = os.path.join(sandbox_path, file_name)
 
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -260,7 +260,7 @@ def append_file_sandbox(sandbox_id: str, file_name: str, content: str) -> bool:
     Returns:
         True if the file was written successfully
     """
-    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    sandbox_path = get_sandbox_path(sandbox_id)
     file_path = os.path.join(sandbox_path, file_name)
 
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -281,7 +281,7 @@ def delete_this_file_sandbox(sandbox_id: str, file_name: str) -> bool:
     Returns:
         True if the file was deleted successfully
     """
-    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    sandbox_path = get_sandbox_path(sandbox_id)
     file_path = os.path.join(sandbox_path, file_name)
 
     try:
@@ -396,7 +396,7 @@ def edit_file_sandbox(
 
     # --- Début de la logique principale ---
     import os
-    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    sandbox_path = get_sandbox_path(sandbox_id)
     full_file_path = os.path.join(sandbox_path, file_path)
 
     # Validation des paramètres
@@ -524,6 +524,20 @@ def save_all_sandboxes(convs):
     with open(CONV_FILE, 'w') as f:
         json.dump(convs, f, indent=2)
 
+# --- Helper function for sandbox paths ---
+def get_sandbox_path(sandbox_id: str) -> str:
+    """Get the actual sandbox path, which may be custom or default.
+    Args:
+        sandbox_id (str): The ID of the sandbox
+    Returns:
+        str: The actual path to the sandbox folder
+    """
+    convs = load_all_sandboxes()
+    conv = convs.get(sandbox_id)
+    if conv and conv.get("custom_path"):
+        return conv["custom_path"]
+    return os.path.join(SANDBOXES_DIR, sandbox_id)
+
 async def runAgent(sandbox_id):
     """Run the agent with the provided data and stream results."""
     loop = asyncio.get_event_loop()
@@ -582,8 +596,8 @@ async def runAgent(sandbox_id):
                                   add_base_tools=False)
                 response = agent.run(prompt, reset = False, additional_args = {
                     "sandbox_id": sandbox_id,
-                    "sandbox_path": os.path.join(SANDBOXES_DIR, sandbox_id),
-                    "past_conversation_file": os.path.join(SANDBOXES_DIR, sandbox_id, "conversation.json"),})
+                    "sandbox_path": get_sandbox_path(sandbox_id),
+                    "past_conversation_file": os.path.join(get_sandbox_path(sandbox_id), "conversation.json"),})
                 queue.put_nowait(response)
         except Exception as e:
             tb_str = traceback.format_exc()
@@ -597,7 +611,7 @@ async def runAgent(sandbox_id):
         if conv is None:
             conv = {"id": sandbox_id, "messages": []}
         conv.setdefault("messages", []).append(new_message)
-        sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+        sandbox_path = get_sandbox_path(sandbox_id)
         os.makedirs(sandbox_path, exist_ok=True)
         all_messages = conv.get("messages", [])
         user_prompt = prompt if prompt else "Agent interaction"
@@ -716,7 +730,7 @@ async def api_create_sandbox(request: Request):
     convs = load_all_sandboxes()
     convs[conv_id] = conv
     save_all_sandboxes(convs)
-    sandbox_path = os.path.join(SANDBOXES_DIR, conv_id)
+    sandbox_path = get_sandbox_path(conv_id)
     init_or_get_repo(sandbox_path)
     return conv
 
@@ -741,7 +755,7 @@ async def api_delete_sandbox(conv_id: str):
     save_all_sandboxes(convs)
     # Suppression du dossier sandbox correspondant
     import shutil
-    sandbox_path = os.path.join(SANDBOXES_DIR, conv_id)
+    sandbox_path = get_sandbox_path(conv_id)
     if os.path.exists(sandbox_path):
         shutil.rmtree(sandbox_path)
     return {"status": "deleted"}
@@ -774,7 +788,7 @@ async def api_patch_sandbox(conv_id: str, request: Request):
         target_step = len(new_messages) - 1
         target_commit = next((c for c in commits if c["step"] == target_step), None)
         if target_commit:
-            sandbox_path = os.path.join(SANDBOXES_DIR, conv_id)
+            sandbox_path = get_sandbox_path(conv_id)
             revert_sandbox_to_commit(sandbox_path, target_commit["hash"])
     return {"status": "ok"}
 
@@ -813,7 +827,7 @@ async def api_revert_sandbox(conv_id: str, request: Request):
         commit_hash = target_commit["hash"]
     
     # Revert the sandbox
-    sandbox_path = os.path.join(SANDBOXES_DIR, conv_id)
+    sandbox_path = get_sandbox_path(conv_id)
     if not os.path.exists(sandbox_path):
         return JSONResponse(status_code=404, content={"error": "Sandbox folder not found"})
     
@@ -828,10 +842,66 @@ async def api_revert_sandbox(conv_id: str, request: Request):
     else:
         return JSONResponse(status_code=500, content={"error": "Failed to revert sandbox"})
 
+@app.post("/sandboxes/{conv_id}/change_folder")
+async def api_change_sandbox_folder(conv_id: str, request: Request):
+    """Change the sandbox folder path for a specific sandbox."""
+    data = await request.json()
+    new_path = data.get("path", "").strip()
+    
+    if not new_path:
+        return JSONResponse(status_code=400, content={"error": "Path is required"})
+    
+    if not os.path.exists(new_path):
+        try:
+            os.makedirs(new_path, exist_ok=True)
+        except Exception as e:
+            return JSONResponse(status_code=400, content={"error": f"Cannot create directory: {str(e)}"})
+    
+    if not os.path.isdir(new_path):
+        return JSONResponse(status_code=400, content={"error": "Path must be a directory"})
+    
+    # Load current sandbox data
+    convs = load_all_sandboxes()
+    conv = convs.get(conv_id)
+    if conv is None:
+        return JSONResponse(status_code=404, content={"error": "Sandbox not found"})
+    
+    # Get the current sandbox path
+    old_path = get_sandbox_path(conv_id)
+    
+    # If there's already content in the old path and it's different from new path, offer to copy
+    if old_path != new_path and os.path.exists(old_path) and os.listdir(old_path):
+        copy_files = data.get("copy_files", True)  # Default to copying files
+        if copy_files:
+            import shutil
+            try:
+                # Copy all files from old path to new path
+                for item in os.listdir(old_path):
+                    s = os.path.join(old_path, item)
+                    d = os.path.join(new_path, item)
+                    if os.path.isdir(s):
+                        if os.path.exists(d):
+                            shutil.rmtree(d)
+                        shutil.copytree(s, d)
+                    else:
+                        shutil.copy2(s, d)
+            except Exception as e:
+                return JSONResponse(status_code=500, content={"error": f"Failed to copy files: {str(e)}"})
+    
+    # Update the sandbox configuration
+    conv["custom_path"] = new_path
+    convs[conv_id] = conv
+    save_all_sandboxes(convs)
+    
+    # Initialize git repo in the new location if it doesn't exist
+    init_or_get_repo(new_path)
+    
+    return {"status": "ok", "new_path": new_path}
+
 @app.post("/open_sandbox_folder/{sandbox_id}")
 async def open_sandbox_folder(sandbox_id: str):
     """Ouvre le dossier du sandbox dans l'explorateur natif."""
-    sandbox_path = os.path.join(SANDBOXES_DIR, sandbox_id)
+    sandbox_path = get_sandbox_path(sandbox_id)
     if not os.path.exists(sandbox_path):
         return JSONResponse(status_code=404, content={"error": "Sandbox folder not found"})
     try:
