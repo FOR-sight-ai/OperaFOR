@@ -404,6 +404,14 @@
             renderHistoryList(convs);
             if (convs.length > 0) {
                 await loadSandbox(convs[0].id);
+            } else {
+                // No sandboxes available, hide input bar
+                currentConvId = null;
+                currentConvMessages = [];
+                document.getElementById('timelineContainer').innerHTML = '';
+                document.getElementById('chatContainer').innerHTML = '';
+                document.getElementById('currentConvTitle').textContent = '';
+                updateInputBarVisibility();
             }
             // Correction : vérification de l'existence du bouton +
             const addBtn = document.getElementById('addSandboxBtn');
@@ -529,6 +537,7 @@
                         document.getElementById('timelineContainer').innerHTML = '';
                         document.getElementById('chatContainer').innerHTML = '';
                         document.getElementById('currentConvTitle').textContent = '';
+                        updateInputBarVisibility();
                     }
                 }
             };
@@ -548,6 +557,7 @@
                         document.getElementById('timelineContainer').innerHTML = '';
                         document.getElementById('chatContainer').innerHTML = '';
                         document.getElementById('currentConvTitle').textContent = '';
+                        updateInputBarVisibility();
                     }
                 }
             };
@@ -710,6 +720,9 @@
             // Met à jour toujours les deux vues pour éviter les problèmes de synchronisation
             renderTimeline();
             renderChatView();
+            
+            // Show the input bar when a sandbox is loaded
+            updateInputBarVisibility();
         }
 
         function updateLastAssistantMessage(text, isComplete = false) {
@@ -758,6 +771,15 @@
 
                 // Défile vers le bas
                 chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+        }
+
+        function updateInputBarVisibility() {
+            const inputBar = document.getElementById('floatingInputBar');
+            if (currentConvId) {
+                inputBar.style.display = 'flex';
+            } else {
+                inputBar.style.display = 'none';
             }
         }
 
