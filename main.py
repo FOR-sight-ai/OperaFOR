@@ -85,6 +85,8 @@ def init_or_get_repo(sandbox_path: str) -> Repo:
     Returns:
         Repo: The dulwich repository object
     """
+    if not os.path.exists(sandbox_path):    
+        os.makedirs(sandbox_path)
     git_path = os.path.join(sandbox_path, '.git')
     if not os.path.exists(git_path):
         repo = porcelain.init(sandbox_path)
@@ -507,6 +509,9 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory=os.path.dirname(os.path.abspath(__file__))), name="static")
 
 def load_all_sandboxes():
+    # if file does not exist return empty dict
+    if not os.path.exists(CONV_FILE):
+        return {}
     with open(CONV_FILE, 'r') as f:
         return json.load(f)
 
@@ -900,7 +905,7 @@ async def open_sandbox_folder(sandbox_id: str):
     """Ouvre le dossier du sandbox dans l'explorateur natif."""
     sandbox_path = get_sandbox_path(sandbox_id)
     if not os.path.exists(sandbox_path):
-        return JSONResponse(status_code=404, content={"error": "Sandbox folder not found"})
+        os.makedirs(sandbox_path)
     try:
         if sys.platform.startswith("darwin"):  # macOS
             subprocess.Popen(["open", sandbox_path])
