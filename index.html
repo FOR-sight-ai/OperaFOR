@@ -859,6 +859,9 @@
                     if (value) {
                         responseText += decoder.decode(value, { stream: !done });
                         updateLastAssistantMessage(responseText);
+                        // Force layout update if needed
+                        const chatContainer = document.getElementById('chatContainer');
+                        if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
                     }
                 }
                 // Met à jour l'historique local avec la réponse finale

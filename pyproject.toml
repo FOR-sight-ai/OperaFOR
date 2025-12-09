@@ -13,12 +13,10 @@ authors = [
 ]
 dependencies = [
     "fastapi>=0.115.13",
-    "fastmcp>=2.8.1",
-    "smolagents[openai, mcp]",
     "duckduckgo-search",
-    "mcp[cli]>=1.9.4",
     "pywebview>=5.4",
     "uvicorn>=0.34.3",
     "pyinstaller",
     "dulwich>=0.21.7",
+    "requests",
 ]
