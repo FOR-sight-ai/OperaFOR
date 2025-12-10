@@ -618,9 +618,21 @@ async def runAgent(sandbox_id):
         return
 
     messages = conv.get("messages", [])
+    
+    # --- PERSISTENCE: Save a pending assistant message ---
+    # This ensures "Working..." is shown even after reload
+    pending_msg = {"role": "assistant", "content": "", "status": "pending"}
+    # We append it to the stored conversation
+    messages.append(pending_msg)
+    conv["messages"] = messages
+    convs[sandbox_id] = conv
+    save_all_sandboxes(convs)
+    
     # Ensure messages are in OpenAI format
     openai_messages = []
-    for m in messages:
+    # Note: We iterate over messages but SKIP the last one (which is our pending placeholder)
+    # for the LLM context, because we don't want to feed an empty assistant message to the LLM.
+    for m in messages[:-1]:
         role = m.get("role")
         content = m.get("content")
         # Map roles if needed, but they should be standard
@@ -646,90 +658,136 @@ async def runAgent(sandbox_id):
     max_turns = 10
     current_turn = 0
     
-    while current_turn < max_turns:
-        current_turn += 1
-        
-        # Notify user (in UI this appears as text chunks)
-        # yield f"Thinking (Turn {current_turn})...\n" 
-        
-        response_data = call_llm(openai_messages, TOOL_DEFINITIONS, config)
-        
-        if "error" in response_data:
-            yield f"Error from LLM: {response_data['error']}"
-            break
+    # We need to track new interactions to save them later
+    # Initial openai_messages has system + history
+    initial_openai_count = len(openai_messages)
+    
+    agent_success = False
+    
+    try:
+        while current_turn < max_turns:
+            current_turn += 1
             
-        choice = response_data.get("choices", [{}])[0]
-        message = choice.get("message", {})
-        content = message.get("content")
-        tool_calls = message.get("tool_calls")
-        
-        # Append assistant message to history
-        openai_messages.append(message)
-        
-        # Yield content if any
-        if content:
-            yield content
+            # Notify user (in UI this appears as text chunks)
+            # yield f"Thinking (Turn {current_turn})...\n" 
             
-        if tool_calls:
-            # yield f"\nExecuting {len(tool_calls)} tools...\n"
-            for tc in tool_calls:
-                func_name = tc["function"]["name"]
-                args_str = tc["function"]["arguments"]
-                call_id = tc["id"]
+            response_data = call_llm(openai_messages, TOOL_DEFINITIONS, config)
+            
+            if "error" in response_data:
+                yield f"Error from LLM: {response_data['error']}"
+                # Add to history as error
+                openai_messages.append({"role": "assistant", "content": f"Error from LLM: {response_data['error']}"})
+                break
                 
-                try:
-                    args = json.loads(args_str)
-                    args["sandbox_id"] = sandbox_id # Inject sandbox_id
+            choice = response_data.get("choices", [{}])[0]
+            message = choice.get("message", {})
+            content = message.get("content")
+            tool_calls = message.get("tool_calls")
+            
+            # Append assistant message to history used for next turn
+            openai_messages.append(message)
+            
+            # Yield content if any
+            if content:
+                yield content
+                
+            if tool_calls:
+                # yield f"\nExecuting {len(tool_calls)} tools...\n"
+                for tc in tool_calls:
+                    func_name = tc["function"]["name"]
+                    args_str = tc["function"]["arguments"]
+                    call_id = tc["id"]
                     
-                    # yield f"Running {func_name}...\n"
-                    result = execute_tool(func_name, args)
-                except Exception as e:
-                    result = f"Error processing arguments: {e}"
+                    try:
+                        args = json.loads(args_str)
+                        args["sandbox_id"] = sandbox_id # Inject sandbox_id
+                        
+                        # yield f"Running {func_name}...\n"
+                        result = execute_tool(func_name, args)
+                    except Exception as e:
+                        result = f"Error processing arguments: {e}"
+                    
+                    # Append tool result
+                    openai_messages.append({
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": result
+                    })
+            else:
+                 # No tool calls, we are done
+                 agent_success = True
+                 break
+        
+    except Exception as e:
+        # Yield error to user if possible
+        yield f"Error during execution: {str(e)}"
+        # We will handle persistence in finally
+        
+    finally:
+        # --- FINALLY: Update the pending message ---
+        # This runs whether success, error, or cancelled (client disconnect)
+        try:
+            convs = load_all_sandboxes()
+            conv = convs.get(sandbox_id)
+            if conv:
+                messages = conv.get("messages", [])
+                # Remove the pending message we added at the start
+                if messages and messages[-1].get("status") == "pending":
+                    messages.pop()
                 
-                # Append tool result
-                openai_messages.append({
-                    "role": "tool",
-                    "tool_call_id": call_id,
-                    "content": result
-                })
-        else:
-             # No tool calls, we are done
-             break
+                # Use agent_success flag to determine status
+                final_status = "done" if agent_success else "error"
+                
+                # If we failed (or cancelled), we might want to also append what we have so far?
+                # For simplicity, if success: append new messages with "done"
+                # If failed: append new messages with "done" (for partials) and maybe an error message at end?
+                # Or just mark all new interactions as "done" and append error if exception caught?
+                
+                # Let's simplify:
+                # 1. Recover any new messages generated (partially or fully)
+                # 2. Append them
+                # 3. If failed/cancelled, append an extra error message
+                
+                new_msgs = openai_messages[initial_openai_count:]
+                for msg in new_msgs:
+                     msg["status"] = "done"
+                     messages.append(msg)
+                
+                if not agent_success:
+                     # Check if we already have an error message?
+                     # The try/except block might have yielded one but maybe not added to openai_messages?
+                     # If it was a disconnect, we won't have an error message in openai_messages.
+                     messages.append({"role": "assistant", "content": "Generation interrupted or failed.", "status": "error"})
+                
+                # --- FIX: Update the User message status ---
+                # The frontend sets the triggering user message to 'pending'. We must mark it as done/error.
+                # We look for the *last* user message.
+                for i in range(len(messages) - 1, -1, -1):
+                    if messages[i].get("role") == "user":
+                        # If it is pending, close it.
+                        if messages[i].get("status") == "pending":
+                             messages[i]["status"] = "done" if agent_success else "error"
+                        # We only need to update the last one that triggered this run
+                        break
 
-    # Save conversation
-    # We need to extract the new messages to save to `conv`
-    # Filter out system prompt and sync with original storage format
-    # The original format was just list of dicts.
-    
-    # We only want to save what happened in THIS run, but wait, `conv["messages"]` stores the whole history.
-    # So we should update `conv["messages"]` with all new messages excluding system prompt.
-    
-    # Actually, simply taking openai_messages[1:] (skipping system) might include duplicates if we initialized from conv["messages"].
-    # We should only detect new messages.
-    
-    # Let's count how many messages we started with
-    initial_count = len(messages)
-    # The system prompt was inserted at 0. So original messages are at 1 to 1+initial_count
-    # So new messages start at 1+initial_count
-    
-    new_interactions = openai_messages[1 + initial_count:]
-    
-    # We need to sanitize "tool_calls" and generic objects for JSON serialization if they are objects
-    # Luckily requests.json() returns dicts/lists so likely fine.
-    
-    for msg in new_interactions:
-         conv["messages"].append(msg)
-    
-    # Git Commit
-    last_user_msg = messages[-1]["content"] if messages else "Update"
-    commit_msg = f"Agent update: {last_user_msg[:30]}..."
-    
-    convs[sandbox_id] = conv
-    save_all_sandboxes(convs)
-    
-    sandbox_path = get_sandbox_path(sandbox_id)
-    commit_sandbox_changes(sandbox_path, conv["messages"], commit_msg)
-    
+                conv["messages"] = messages
+                convs[sandbox_id] = conv
+                save_all_sandboxes(convs)
+                
+                # Git Commit
+                last_user_msg = "Update"
+                for m in reversed(messages):
+                    if m.get("role") == "user":
+                        last_user_msg = m.get("content", "Update")
+                        break
+                
+                commit_msg = f"Agent update: {last_user_msg[:30]}..."
+                
+                sandbox_path = get_sandbox_path(sandbox_id)
+                commit_sandbox_changes(sandbox_path, conv["messages"], commit_msg)
+        except Exception as e:
+            print(f"Critical error saving conversation state: {e}")
+            
     yield "" # Close stream
 
 @app.post("/agent")

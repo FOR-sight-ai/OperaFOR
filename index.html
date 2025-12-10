@@ -7,6 +7,8 @@
     <title>OperaFOR</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
     <style>
         .command-line {
             position: relative;
@@ -209,6 +211,121 @@
             .view-toggle button .fas {
                 margin-right: 0.25rem;
             }
+        }
+
+        /* Markdown Styles */
+        .markdown-body {
+            line-height: 1.6;
+        }
+
+        .markdown-body h1 {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 0.5em;
+            margin-top: 1em;
+        }
+
+        .markdown-body h2 {
+            font-size: 1.3em;
+            font-weight: bold;
+            margin-bottom: 0.5em;
+            margin-top: 1em;
+        }
+
+        .markdown-body h3 {
+            font-size: 1.1em;
+            font-weight: bold;
+            margin-bottom: 0.5em;
+            margin-top: 1em;
+        }
+
+        .markdown-body ul {
+            list-style-type: disc;
+            margin-left: 1.5rem;
+            margin-bottom: 0.5em;
+        }
+
+        .markdown-body ol {
+            list-style-type: decimal;
+            margin-left: 1.5rem;
+            margin-bottom: 0.5em;
+        }
+
+        .markdown-body em {
+            font-style: italic;
+        }
+
+        .markdown-body strong {
+            font-weight: bold;
+        }
+
+        .markdown-body p {
+            margin-bottom: 0.75em;
+        }
+
+        .markdown-body pre {
+            background-color: #f3f4f6;
+            padding: 0.75rem;
+            border-radius: 0.375rem;
+            overflow-x: auto;
+            margin-bottom: 0.75em;
+            border: 1px solid #e5e7eb;
+        }
+
+        .markdown-body code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            background-color: rgba(0, 0, 0, 0.06);
+            padding: 0.1rem 0.3rem;
+            border-radius: 0.2rem;
+            font-size: 0.9em;
+        }
+
+        .markdown-body pre code {
+            background-color: transparent;
+            padding: 0;
+            font-size: 0.9em;
+            border: none;
+        }
+
+        .markdown-body blockquote {
+            border-left: 4px solid #e5e7eb;
+            padding-left: 1rem;
+            color: #4b5563;
+            font-style: italic;
+            margin-bottom: 0.75em;
+        }
+
+        .markdown-body table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 0.75em;
+        }
+
+        .markdown-body th,
+        .markdown-body td {
+            border: 1px solid #d1d5db;
+            padding: 0.5rem;
+            text-align: left;
+        }
+
+        .markdown-body th {
+            background-color: #f9fafb;
+            font-weight: 600;
+        }
+
+        .markdown-body a {
+            color: #2563eb;
+            text-decoration: underline;
+        }
+
+        .markdown-body a:hover {
+            color: #1d4ed8;
+        }
+
+        .markdown-body hr {
+            margin: 1.5rem 0;
+            border: 0;
+            border-top: 1px solid #e5e7eb;
         }
     </style>
 </head>
@@ -738,7 +855,8 @@
                 const lastStep = steps[steps.length - 1];
                 const detailDiv = lastStep.querySelector('.command-collapse .text-sm.text-gray-700');
                 if (detailDiv) {
-                    detailDiv.innerHTML = text.replace(/\n/g, '<br>');
+                    detailDiv.innerHTML = DOMPurify.sanitize(marked.parse(text));
+                    detailDiv.classList.add('markdown-body');
                 }
                 // Met à jour le statut et l'icône si besoin
                 const statusDiv = lastStep.querySelector('.mt-1.text-sm.text-gray-500');
@@ -762,7 +880,8 @@
                     const oldStatus = bubble.querySelector('.text-xs.text-gray-500');
                     if (oldStatus) oldStatus.remove();
 
-                    bubble.innerHTML = text.replace(/\n/g, '<br>');
+                    bubble.innerHTML = DOMPurify.sanitize(marked.parse(text));
+                    bubble.classList.add('markdown-body');
 
                     // Ajoute l'indicateur "Working..." seulement si pas terminé
                     if (!isComplete) {
@@ -964,7 +1083,8 @@
 
                 // Formate le contenu du message
                 const content = msg.content || '';
-                bubbleDiv.innerHTML = content.replace(/\n/g, '<br>');
+                bubbleDiv.innerHTML = DOMPurify.sanitize(marked.parse(content));
+                bubbleDiv.classList.add('markdown-body');
 
                 // Ajoute un indicateur de statut pour les messages en cours
                 if (msg.status === 'pending') {
@@ -1060,7 +1180,7 @@
                             </div>
                             <div class="mt-1 text-sm text-gray-500">${statusText}</div>
                             <div class="command-collapse mt-2 bg-gray-50 p-3 rounded-md">
-                                <div class="text-sm text-gray-700 mb-2 font-medium">${step.responses.map(r => r.replace(/\n/g, '<br>')).join('<hr class=\"my-2\">')}</div>
+                                <div class="text-sm text-gray-700 mb-2 font-medium markdown-body">${step.responses.map(r => DOMPurify.sanitize(marked.parse(r))).join('<hr class=\"my-2\">')}</div>
                             </div>
                         </div>
                     </div>

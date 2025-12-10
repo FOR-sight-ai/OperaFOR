@@ -4,8 +4,8 @@ OperaFOR is a minimalist graphical interface for LLM and RAG agents, designed to
 
 ## ✨ Main Features
 
-- **Minimalist interface**: just one HTML page, one Python file.
-- **Access to advanced search tools** via MCP (Model Context Protocol).
+- **Minimalist interface**: just one HTML page, one Python file. Minimal number of dependencies.
+- **Base default search tools** for reading, writing and editing files in the folder
 - **Local execution**: runs with pywebview and can be packaged with pyinstaller.
 - **A task-oriented experience**: the interface emphasizes tasks, making it clear that answers are not instantaneous (unlike a chatbot).
 - **Supports RAG (Retrieval-Augmented Generation)** and LLM agents.
@@ -44,7 +44,7 @@ A standalone Windows executable is available on the [GitHub Releases page](https
 
 ## 📁 Project Structure
 
-- `main.py`: FastAPI server, sandboxes management, MCP integration, pywebview launcher.
+- `main.py`: FastAPI server, sandboxes management, custom agentic logic, pywebview launcher.
 - `index.html`: unique, responsive, task-oriented user interface.
 
 
