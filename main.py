@@ -17,7 +17,6 @@ import http.client
 import urllib.parse
 import io
 import base64
-# import fitz # Lazy loaded
 
 
 # Configure logging
@@ -364,14 +363,8 @@ def edit_file_sandbox(sandbox_id: str, file_path: str, edits: List[Dict[str, str
         
         if normalize_ws:
             old_search = normalize_whitespace(old)
-            # We don't normalize new_text for insertion, but maybe for comparison
-            # Actually original code normalized both for exact match check
-            # For simplicity let's stick to simple find if normalize_ws is bad
             pass 
 
-        # Simplified match logic compared to original to fit in one file cleaner
-        # Original logic was quite complex about whitespace. 
-        # Let's try basic replace first.
         if old in modified_content:
              modified_content = modified_content.replace(old, new, 1)
              changes_made = True
@@ -393,6 +386,162 @@ def edit_file_sandbox(sandbox_id: str, file_path: str, edits: List[Dict[str, str
 
     return json.dumps({"success": True, "diff": diff})
 
+# --- New Folder Exploration Tools ---
+
+def get_folder_structure_sandbox(sandbox_id: str, max_depth: int = 2) -> str:
+    """Returns a tree-like string representation of the folder structure."""
+    sandbox_path = get_sandbox_path(sandbox_id)
+    if not os.path.exists(sandbox_path):
+        return "Sandbox directory does not exist."
+    
+    output = []
+    
+    def add_to_tree(path, prefix="", depth=0):
+        if depth > max_depth:
+            return
+        
+        try:
+            entries = sorted(os.listdir(path))
+        except PermissionError:
+            return
+
+        entries = [e for e in entries if e != '.git']
+        
+        for i, entry in enumerate(entries):
+            is_last = (i == len(entries) - 1)
+            full_path = os.path.join(path, entry)
+            is_dir = os.path.isdir(full_path)
+            
+            connector = "└── " if is_last else "├── "
+            output.append(f"{prefix}{connector}{entry}{'/' if is_dir else ''}")
+            
+            if is_dir:
+                extension = "    " if is_last else "│   "
+                add_to_tree(full_path, prefix + extension, depth + 1)
+                
+    output.append(".")
+    add_to_tree(sandbox_path)
+    return "\n".join(output)
+
+def search_files_sandbox(sandbox_id: str, pattern: str) -> List[str]:
+    """Search for files in the sandbox matching a glob pattern."""
+    import glob
+    sandbox_path = get_sandbox_path(sandbox_id)
+    if not os.path.exists(sandbox_path):
+        return ["Sandbox directory does not exist."]
+    
+    # Use glob with recursive search
+    # Note: glob.glob with recursive=True requires ** in pattern for recursive
+    # But user might just provide *.py. 
+    # Let's support simple filename matching recursively manually or use glob's ability
+    
+    # better approach: walk and match
+    import fnmatch
+    matches = []
+    start_time = datetime.now()
+    
+    for root, dirs, files in os.walk(sandbox_path):
+        # Skip git
+        if '.git' in dirs:
+            dirs.remove('.git')
+            
+        for name in files:
+            if fnmatch.fnmatch(name, pattern):
+                rel_path = os.path.relpath(os.path.join(root, name), sandbox_path)
+                matches.append(rel_path)
+        
+        # Also match directories if needed? The request said "info in which file", so files mostly.
+    
+    if not matches:
+        return [f"No files found matching pattern '{pattern}'"]
+    
+    return matches
+
+def search_content_sandbox(sandbox_id: str, query: str, case_sensitive: bool = False) -> str:
+    """Search for text content within files."""
+    sandbox_path = get_sandbox_path(sandbox_id)
+    if not os.path.exists(sandbox_path):
+        return "Sandbox directory does not exist."
+    
+    results = []
+    
+    for root, dirs, files in os.walk(sandbox_path):
+        if '.git' in dirs:
+             dirs.remove('.git')
+             
+        for file in files:
+            file_path = os.path.join(root, file)
+            rel_path = os.path.relpath(file_path, sandbox_path)
+            
+            # Skip likely binary files or large files to prevent freezing
+            # Simple check: extensions
+            skip_exts = ['.pyc', '.git', '.png', '.jpg', '.jpeg', '.pdf', '.zip', '.exe']
+            if any(file.lower().endswith(ext) for ext in skip_exts):
+                continue
+                
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                    
+                for i, line in enumerate(lines):
+                    if case_sensitive:
+                        match = query in line
+                    else:
+                        match = query.lower() in line.lower()
+                        
+                    if match:
+                        # Truncate line if too long
+                        content = line.strip()
+                        if len(content) > 200:
+                            content = content[:200] + "..."
+                        results.append(f"{rel_path}:{i+1}: {content}")
+                        # Limit results per file?
+                        if len(results) > 100: # Global limit
+                             break
+            except Exception:
+                pass # Skip files we can't read
+            
+            if len(results) > 100:
+                results.append("... (results truncated)")
+                break
+                
+    if not results:
+        return f"No matches found for '{query}'"
+        
+    return "\n".join(results)
+
+def get_file_info_sandbox(sandbox_id: str, file_path: str) -> str:
+    """Get metadata about a specific file."""
+    sandbox_path = get_sandbox_path(sandbox_id)
+    full_path = os.path.join(sandbox_path, file_path)
+    
+    if not os.path.exists(full_path):
+        return f"File not found: {file_path}"
+        
+    try:
+        stat = os.stat(full_path)
+        is_dir = os.path.isdir(full_path)
+        
+        info = {
+            "name": os.path.basename(file_path),
+            "type": "directory" if is_dir else "file",
+            "size_bytes": stat.st_size,
+            "created": datetime.fromtimestamp(stat.st_ctime).strftime('%Y-%m-%d %H:%M:%S'),
+            "modified": datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+        }
+        
+        if not is_dir:
+            # Count lines for text files
+            try:
+                with open(full_path, 'r', encoding='utf-8') as f:
+                    info["lines"] = sum(1 for _ in f)
+            except:
+                info["lines"] = "N/A (binary or non-utf8)"
+                
+        return json.dumps(info, indent=2)
+    except Exception as e:
+        return f"Error getting file info: {e}"
+
 # Tool Registry
 TOOL_DEFINITIONS = [
     {
@@ -406,6 +555,67 @@ TOOL_DEFINITIONS = [
                     "sandbox_id": {"type": "string", "description": "The ID of the sandbox."}
                 },
                 "required": ["sandbox_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_folder_structure_sandbox",
+            "description": "Get a tree-like representation of the folders.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sandbox_id": {"type": "string", "description": "The ID of the sandbox."},
+                    "max_depth": {"type": "integer", "description": "Max depth to traverse (default 2)."}
+                },
+                "required": ["sandbox_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_files_sandbox",
+            "description": "Search for files matching a pattern (e.g. *.py).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sandbox_id": {"type": "string", "description": "The ID of the sandbox."},
+                    "pattern": {"type": "string", "description": "Glob pattern to search for."}
+                },
+                "required": ["sandbox_id", "pattern"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_content_sandbox",
+            "description": "Search for text content within files (grep-like).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sandbox_id": {"type": "string", "description": "The ID of the sandbox."},
+                    "query": {"type": "string", "description": "Text to search for."},
+                    "case_sensitive": {"type": "boolean", "description": "Case sensitive match."}
+                },
+                "required": ["sandbox_id", "query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_file_info_sandbox",
+            "description": "Get metadata (size, lines, time) for a file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sandbox_id": {"type": "string", "description": "The ID of the sandbox."},
+                    "file_path": {"type": "string", "description": "Relative path to the file."}
+                },
+                "required": ["sandbox_id", "file_path"]
             }
         }
     },
@@ -504,6 +714,14 @@ def execute_tool(name: str, args: Dict[str, Any]) -> str:
     try:
         if name == "list_sandbox_files":
             return str(list_sandbox_files(args.get("sandbox_id")))
+        elif name == "get_folder_structure_sandbox":
+            return str(get_folder_structure_sandbox(args.get("sandbox_id"), args.get("max_depth", 2)))
+        elif name == "search_files_sandbox":
+            return str(search_files_sandbox(args.get("sandbox_id"), args.get("pattern")))
+        elif name == "search_content_sandbox":
+             return str(search_content_sandbox(args.get("sandbox_id"), args.get("query"), args.get("case_sensitive", False)))
+        elif name == "get_file_info_sandbox":
+             return str(get_file_info_sandbox(args.get("sandbox_id"), args.get("file_path")))
         elif name == "read_file_sandbox":
             return str(read_file_sandbox(args.get("sandbox_id"), args.get("file_name"), args.get("model_name")))
         elif name == "save_file_sandbox":
