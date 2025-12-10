@@ -15,12 +15,9 @@ import subprocess
 import asyncio
 import http.client
 import urllib.parse
-from dulwich import porcelain
-from dulwich import porcelain
-from dulwich.repo import Repo
-import base64
 import io
-import fitz # PyMuPDF
+import base64
+# import fitz # Lazy loaded
 
 
 # Configure logging
@@ -62,8 +59,11 @@ else:
 
 # --- git utils  ---
 
-def init_or_get_repo(sandbox_path: str) -> Repo:
+def init_or_get_repo(sandbox_path: str):
     """Initialize git repository in sandbox folder if it doesn't exist, or get existing repo."""
+    from dulwich import porcelain
+    from dulwich.repo import Repo
+
     if not os.path.exists(sandbox_path):    
         os.makedirs(sandbox_path)
     git_path = os.path.join(sandbox_path, '.git')
@@ -82,6 +82,7 @@ def write_conversation_json(sandbox_path: str, messages: list) -> str:
 
 def commit_sandbox_changes(sandbox_path: str, messages: list, commit_message: str) -> str:
     """Commit all changes in the sandbox folder including conversation.json."""
+    from dulwich import porcelain
     repo = init_or_get_repo(sandbox_path)
     
     # Write conversation.json
@@ -110,6 +111,7 @@ def commit_sandbox_changes(sandbox_path: str, messages: list, commit_message: st
 
 def revert_sandbox_to_commit(sandbox_path: str, commit_hash: str) -> bool:
     """Revert the sandbox to a specific commit."""
+    from dulwich import porcelain
     try:
         porcelain.reset(sandbox_path, "hard", commit_hash)
 
@@ -188,6 +190,7 @@ def read_file_sandbox(sandbox_id: str, file_name:str, model_name: str = None) ->
         return f"Error: File {file_name} not found"
     
     if file_name.lower().endswith(".pdf"):
+        import fitz # PyMuPDF
         if is_vlm(model_name):
             try:
                 doc = fitz.open(file_path)
@@ -588,10 +591,10 @@ async def simple_llm_call(messages: List[Dict], tools: List[Dict], config: Dict)
     pass 
 
 # Retrying `simple_llm_call` with `requests`
-import time
-import requests
 
 def call_llm(messages, tools, config):
+    import time
+    import requests
     endpoint = config.get("llm", {}).get("endpoint", "https://openrouter.ai/api/v1")
     if not endpoint.endswith("/chat/completions"):
         endpoint = endpoint.rstrip("/") + "/chat/completions"

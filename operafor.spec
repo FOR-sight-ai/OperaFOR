@@ -6,16 +6,14 @@ block_cipher = None
 
 # Collect metadata for packages that need it
 datas = [('index.html', '.')]
-datas += copy_metadata('fastmcp')
-datas += copy_metadata('mcp')
-datas += copy_metadata('smolagents')
+# Removed metadata copies for removed libraries
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
     datas=datas,
-    hiddenimports=['aiohttp', 'smolagents.prompts', 'fastmcp', 'mcp'],
+    hiddenimports=['aiohttp'], # keeping aiohttp just in case, but others removed
     hookspath=['hooks'],
     hooksconfig={},
     runtime_hooks=[],
@@ -35,7 +33,7 @@ exe = EXE(
     debug=False,                        
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,                       
