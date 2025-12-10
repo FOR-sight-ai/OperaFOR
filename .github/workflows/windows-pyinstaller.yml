@@ -18,12 +18,10 @@ jobs:
           - os: macos-latest
             platform: macos
             arch: x64
-            executable_name: operafor
             package_suffix: macos-x64
           - os: windows-latest
             platform: windows
             arch: x64
-            executable_name: operafor.exe
             package_suffix: windows-x64
 
     steps:
@@ -73,7 +71,7 @@ jobs:
         run: |
           PACKAGE_DIR="operafor-executable-v${{ github.run_number }}-${{ matrix.package_suffix }}"
           mkdir -p "$PACKAGE_DIR"
-          cp dist/${{ matrix.executable_name }} "$PACKAGE_DIR/"
+          cp -r dist/operafor "$PACKAGE_DIR/"
           cp README.md "$PACKAGE_DIR/" || echo "README.md not found"
           cp LICENSE "$PACKAGE_DIR/" || echo "LICENSE not found"
 
