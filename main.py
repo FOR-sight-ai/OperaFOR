@@ -650,8 +650,18 @@ async def runAgent(sandbox_id):
         openai_messages.append(msg_obj)
         
     # We want to respond to the last message
-    # Add system prompt
-    system_prompt = f"You are a coding assistant. You have access to a sandbox environment with ID {sandbox_id}. You can read, write, edit files. Prefer editing files over overwriting them. Use the provided tools."
+    # Determine available tools and system prompt based on read-only status
+    read_only = conv.get("read_only", False)
+    
+    current_tools = TOOL_DEFINITIONS
+    if read_only:
+        # Filter out writing tools
+        read_only_tool_names = ["list_sandbox_files", "read_file_sandbox"]
+        current_tools = [t for t in TOOL_DEFINITIONS if t["function"]["name"] in read_only_tool_names]
+        system_prompt = f"You are a coding assistant. You have access to a sandbox environment with ID {sandbox_id}. This sandbox is pending READ-ONLY mode. You can ONLY read files. You CANNOT write, edit, or delete files. Use the provided tools."
+    else:
+        system_prompt = f"You are a coding assistant. You have access to a sandbox environment with ID {sandbox_id}. You can read, write, edit files. Prefer editing files over overwriting them. Use the provided tools."
+    
     openai_messages.insert(0, {"role": "system", "content": system_prompt})
     
     # Agent Loop
@@ -671,7 +681,7 @@ async def runAgent(sandbox_id):
             # Notify user (in UI this appears as text chunks)
             # yield f"Thinking (Turn {current_turn})...\n" 
             
-            response_data = call_llm(openai_messages, TOOL_DEFINITIONS, config)
+            response_data = call_llm(openai_messages, current_tools, config)
             
             if "error" in response_data:
                 yield f"Error from LLM: {response_data['error']}"
@@ -827,7 +837,7 @@ async def set_config(request: Request):
 @app.get("/sandboxes")
 async def api_list_sandboxes():
     convs = load_all_sandboxes()
-    return [ {"id": cid, "title": c.get("title", f"Sandbox {cid}")} for cid, c in convs.items() ]
+    return [ {"id": cid, "title": c.get("title", f"Sandbox {cid}"), "read_only": c.get("read_only", False)} for cid, c in convs.items() ]
 
 @app.get("/sandboxes/{conv_id}")
 async def api_get_sandbox(conv_id: str):
@@ -843,10 +853,11 @@ async def api_create_sandbox(request: Request):
     conv_id = str(uuid.uuid4())
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     title = data.get("title") or f"{now}"
+    read_only = data.get("read_only", False)
     messages = data.get("messages")
     if not isinstance(messages, list):
         messages = []
-    conv = { "id": conv_id, "title": title, "messages": messages }
+    conv = { "id": conv_id, "title": title, "read_only": read_only, "messages": messages }
     convs = load_all_sandboxes()
     convs[conv_id] = conv
     save_all_sandboxes(convs)
@@ -889,6 +900,8 @@ async def api_patch_sandbox(conv_id: str, request: Request):
         return JSONResponse(status_code=404, content={"error": "Not found"})
     if "title" in data:
         conv["title"] = data["title"]
+    if "read_only" in data:
+        conv["read_only"] = data["read_only"]
     update_commit = False
     if "messages" in data:
         old_messages = conv.get("messages", [])

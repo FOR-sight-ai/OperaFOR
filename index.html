@@ -417,6 +417,11 @@
                                 placeholder="Titre...">
 
                             <!-- Folder settings section (only visible when editing) -->
+                            <div class="mb-4 flex items-center">
+                                <input type="checkbox" id="sandboxReadOnlyCheckbox" class="mr-2">
+                                <label for="sandboxReadOnlyCheckbox" class="text-sm text-gray-700">Read Only Mode (No
+                                    file writing/editing)</label>
+                            </div>
                             <div id="folderSettings" class="mb-4" style="display:none;">
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Knowledge Base
                                     Folder</label>
@@ -551,6 +556,7 @@
                 modalMode = 'create';
                 modalTitle.textContent = 'New Knowledge Base';
                 input.value = '';
+                document.getElementById('sandboxReadOnlyCheckbox').checked = false;
                 folderSettings.style.display = 'none';
                 modal.style.display = 'flex';
                 setTimeout(() => input.focus(), 100);
@@ -562,24 +568,25 @@
                     input.focus();
                     return;
                 }
+                const readOnly = document.getElementById('sandboxReadOnlyCheckbox').checked;
 
                 modal.style.display = 'none';
 
                 if (modalMode === 'create') {
-                    const newConv = await createSandbox(title);
+                    const newConv = await createSandbox(title, readOnly);
                     if (newConv && newConv.id) {
                         await loadHistoryPanel();
                         await loadSandbox(newConv.id);
                     }
                 } else if (modalMode === 'rename') {
-                    const ok = await renameSandbox(currentConvId, title);
+                    const ok = await updateSandboxMetadata(currentConvId, title, readOnly);
                     if (ok) {
                         await loadHistoryPanel();
                         await loadSandbox(currentConvId);
                     }
                 } else if (modalMode === 'edit') {
-                    // Handle both rename and folder change
-                    const renameOk = await renameSandbox(currentConvId, title);
+                    // Handle both rename/metadata and folder change
+                    const renameOk = await updateSandboxMetadata(currentConvId, title, readOnly);
                     let folderOk = true;
 
                     const newPath = folderInput.value.trim();
@@ -617,11 +624,17 @@
             const deleteBtn = document.getElementById('deleteConvBtn');
             const changeFolderBtn = document.getElementById('changeFolderBtn');
 
-            changeFolderBtn.onclick = function () {
+            changeFolderBtn.onclick = async function () {
                 if (!currentConvId) return;
                 modalMode = 'edit';
                 modalTitle.textContent = 'Edit Knowledge Base';
-                input.value = document.getElementById('currentConvTitle').textContent;
+
+                // Fetch current details
+                const conv = await fetchSandbox(currentConvId);
+
+                input.value = conv.title || "";
+                document.getElementById('sandboxReadOnlyCheckbox').checked = conv.read_only || false;
+
                 folderInput.value = '';
                 copyFilesCheckbox.checked = true;
                 folderSettings.style.display = 'block';
@@ -770,11 +783,11 @@
             if (!res.ok) return null;
             return await res.json();
         }
-        async function createSandbox(title) {
+        async function createSandbox(title, readOnly) {
             const res = await fetch('/sandboxes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title })
+                body: JSON.stringify({ title, read_only: readOnly })
             });
             if (!res.ok) return null;
             return await res.json();
@@ -1025,11 +1038,11 @@
             const res = await fetch(`/sandboxes/${convId}?${params}`, { method: 'DELETE' });
             return res.ok;
         }
-        async function renameSandbox(convId, newTitle) {
+        async function updateSandboxMetadata(convId, newTitle, readOnly) {
             const res = await fetch(`/sandboxes/${convId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title: newTitle })
+                body: JSON.stringify({ title: newTitle, read_only: readOnly })
             });
             return res.ok;
         }
