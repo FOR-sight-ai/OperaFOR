@@ -16,7 +16,12 @@ import asyncio
 import http.client
 import urllib.parse
 from dulwich import porcelain
+from dulwich import porcelain
 from dulwich.repo import Repo
+import base64
+import io
+import fitz # PyMuPDF
+
 
 # Configure logging
 logging.basicConfig(
@@ -126,6 +131,7 @@ def revert_sandbox_to_commit(sandbox_path: str, commit_hash: str) -> bool:
         print(f"Error reverting to commit {commit_hash}: {e}")
         return False
 
+
 # --- Helper function for sandbox paths ---
 def load_all_sandboxes():
     if not os.path.exists(CONV_FILE):
@@ -143,6 +149,15 @@ def get_sandbox_path(sandbox_id: str) -> str:
     if conv and conv.get("custom_path"):
         return conv["custom_path"]
     return os.path.join(SANDBOXES_DIR, sandbox_id)
+
+def is_vlm(model_name: str) -> bool:
+    """Check if the model has vision capabilities."""
+    if not model_name:
+        return False
+    model_lower = model_name.lower()
+    vision_keywords = ["vision", "4o", "claude-3", "gemini", "sonnet", "opus", "pixtral", "llavanext"]
+    return any(keyword in model_lower for keyword in vision_keywords)
+
 
 
 # --- Tool Definitions ---
@@ -165,12 +180,39 @@ def list_sandbox_files(sandbox_id: str) -> List[str]:
         return ["No files found in this sandbox."]
     return output_files
 
-def read_file_sandbox(sandbox_id: str, file_name:str) -> str:
+def read_file_sandbox(sandbox_id: str, file_name:str, model_name: str = None) -> str:
     """ Read a file from the sandbox directory."""
     sandbox_path = get_sandbox_path(sandbox_id)
     file_path = os.path.join(sandbox_path, file_name)
     if not os.path.exists(file_path):
         return f"Error: File {file_name} not found"
+    
+    if file_name.lower().endswith(".pdf"):
+        if is_vlm(model_name):
+            try:
+                doc = fitz.open(file_path)
+                images = []
+                for db in doc: # iterate through pages
+                    pix = db.get_pixmap()
+                    img_data = pix.tobytes("png")
+                    b64_img = base64.b64encode(img_data).decode("utf-8")
+                    images.append(b64_img)
+                doc.close()
+                return json.dumps({"__type__": "image", "images": images})
+            except Exception as e:
+                 return f"Error reading PDF file: {e}"
+        else:
+            try:
+                doc = fitz.open(file_path)
+                text_content = []
+                for i, page in enumerate(doc):
+                    text = page.get_text()
+                    text_content.append(f"--- Page {i+1} ---\n{text}")
+                doc.close()
+                return "\n".join(text_content) if text_content else "PDF is empty or contains no extractable text."
+            except Exception as e:
+                return f"Error reading PDF file: {e}"
+
     try:
         with open(file_path, 'r') as f:
             return f.read()
@@ -460,7 +502,7 @@ def execute_tool(name: str, args: Dict[str, Any]) -> str:
         if name == "list_sandbox_files":
             return str(list_sandbox_files(args.get("sandbox_id")))
         elif name == "read_file_sandbox":
-            return str(read_file_sandbox(args.get("sandbox_id"), args.get("file_name")))
+            return str(read_file_sandbox(args.get("sandbox_id"), args.get("file_name"), args.get("model_name")))
         elif name == "save_file_sandbox":
             return str(save_file_sandbox(args.get("sandbox_id"), args.get("file_name"), args.get("content")))
         elif name == "append_file_sandbox":
@@ -678,13 +720,13 @@ async def runAgent(sandbox_id):
         while current_turn < max_turns:
             current_turn += 1
             
-            # Notify user (in UI this appears as text chunks)
-            # yield f"Thinking (Turn {current_turn})...\n" 
+            # Notify user
+            # yield json.dumps({"type": "status", "data": f"Thinking (Turn {current_turn})..."}) + "\n"
             
             response_data = call_llm(openai_messages, current_tools, config)
             
             if "error" in response_data:
-                yield f"Error from LLM: {response_data['error']}"
+                yield json.dumps({"type": "error", "data": f"Error from LLM: {response_data['error']}"}) + "\n"
                 # Add to history as error
                 openai_messages.append({"role": "assistant", "content": f"Error from LLM: {response_data['error']}"})
                 break
@@ -699,29 +741,88 @@ async def runAgent(sandbox_id):
             
             # Yield content if any
             if content:
-                yield content
+                # If we have thoughts mixed with content (e.g. CoT), we might want to separate them later. 
+                # For now, let's assume content is the "thought" or "answer".
+                # Unless we have tool calls, everything is "content" or "thought".
+                # But typically modern models put CoT in content.
+                # We'll emit it as "content" for now, frontend can render it.
+                # Actually, if there are tool calls, the content is often the "thought" explaining why.
+                # Let's just send "content" and let frontend decide or just display it.
+                # IMPROVEMENT: send as "thought" if tool_calls is not empty?
+                msg_type = "thought" if tool_calls else "content"
+                yield json.dumps({"type": msg_type, "data": content}) + "\n"
                 
             if tool_calls:
-                # yield f"\nExecuting {len(tool_calls)} tools...\n"
+                # yield json.dumps({"type": "status", "data": f"Executing {len(tool_calls)} tools..."}) + "\n"
                 for tc in tool_calls:
                     func_name = tc["function"]["name"]
                     args_str = tc["function"]["arguments"]
                     call_id = tc["id"]
                     
+                    # Emit tool call event
+                    yield json.dumps({
+                        "type": "tool_call", 
+                        "data": {
+                            "name": func_name, 
+                            "arguments": args_str,
+                            "id": call_id
+                        }
+                    }) + "\n"
+                    
                     try:
                         args = json.loads(args_str)
                         args["sandbox_id"] = sandbox_id # Inject sandbox_id
+                        args["model_name"] = config.get("llm", {}).get("model") # Inject model_name
                         
-                        # yield f"Running {func_name}...\n"
                         result = execute_tool(func_name, args)
+                        
+                        # Emit tool result event
+                        # Check for images in result
+                        content_payload = result
+                        is_image = False
+                        try:
+                            if result.strip().startswith('{"__type__": "image"'):
+                                data = json.loads(result)
+                                if data.get("__type__") == "image":
+                                    is_image = True
+                                    images = data.get("images", [])
+                                    content_payload = [{"type": "text", "text": "PDF Content (rendered as images):"}]
+                                    for img in images:
+                                        content_payload.append({
+                                            "type": "image_url",
+                                            "image_url": {"url": f"data:image/png;base64,{img}"}
+                                        })
+                        except Exception as e:
+                            print(f"Error parsing image result: {e}")
+                            pass
+                        
+                        yield json.dumps({
+                            "type": "tool_result",
+                            "data": {
+                                "id": call_id,
+                                "name": func_name,
+                                "result": "PDF Images (hidden)" if is_image else result
+                            }
+                        }) + "\n"
+
                     except Exception as e:
                         result = f"Error processing arguments: {e}"
+                        content_payload = result
+                        yield json.dumps({
+                            "type": "tool_result",
+                            "data": {
+                                "id": call_id,
+                                "name": func_name,
+                                "result": result,
+                                "is_error": True
+                            }
+                        }) + "\n"
                     
                     # Append tool result
                     openai_messages.append({
                         "role": "tool",
                         "tool_call_id": call_id,
-                        "content": result
+                        "content": content_payload
                     })
             else:
                  # No tool calls, we are done
@@ -729,8 +830,8 @@ async def runAgent(sandbox_id):
                  break
         
     except Exception as e:
-        # Yield error to user if possible
-        yield f"Error during execution: {str(e)}"
+        # Yield error to user
+        yield json.dumps({"type": "error", "data": f"Error during execution: {str(e)}"}) + "\n"
         # We will handle persistence in finally
         
     finally:
