@@ -560,6 +560,26 @@
         </div>
     </div>
     <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- Fork Modal -->
+    <div id="forkModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center hidden"
+        style="z-index: 100;">
+        <div class="bg-white rounded-lg shadow-lg p-6 w-96 transform transition-all">
+            <h3 class="text-lg font-semibold mb-4 text-gray-800"><i
+                    class="fas fa-code-branch mr-2 text-purple-600"></i>Fork Sandbox</h3>
+            <p class="text-sm text-gray-600 mb-2">Enter a title for the new forked knowledge base:</p>
+            <input type="text" id="forkTitleInput"
+                class="w-full border border-gray-300 rounded px-3 py-2 mb-4 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                placeholder="New Sandbox Title" />
+            <div class="flex justify-end space-x-2">
+                <button onclick="closeForkModal()"
+                    class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded text-sm transition-colors font-medium">Cancel</button>
+                <button onclick="confirmFork()"
+                    class="px-4 py-2 bg-purple-600 text-white hover:bg-purple-700 rounded text-sm transition-colors shadow-sm font-medium">Fork</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const defaultConfig = `{
   "llm": {
@@ -1520,12 +1540,35 @@
             await loadSandbox(currentConvId);
         };
 
-        window.forkStep = async function (idx) {
+        let currentForkIdx = null;
+
+        window.openForkModal = function (idx) {
+            currentForkIdx = idx;
             const titleElem = document.getElementById('currentConvTitle');
             const currentTitle = titleElem ? titleElem.textContent : 'Sandbox';
-            const newTitle = prompt("Enter title for the new forked knowledge base:", "Fork of " + currentTitle);
-            if (!newTitle) return;
+            const input = document.getElementById('forkTitleInput');
+            input.value = "Fork of " + currentTitle;
+            document.getElementById('forkModal').classList.remove('hidden');
+            setTimeout(() => input.focus(), 100);
 
+            input.onkeydown = function (e) {
+                if (e.key === 'Enter') confirmFork();
+                if (e.key === 'Escape') closeForkModal();
+            };
+        };
+
+        window.closeForkModal = function () {
+            document.getElementById('forkModal').classList.add('hidden');
+            currentForkIdx = null;
+        };
+
+        window.confirmFork = async function () {
+            const newTitle = document.getElementById('forkTitleInput').value.trim();
+            if (!newTitle) return;
+            const idx = currentForkIdx;
+            closeForkModal();
+
+            // Logic from original forkStep
             // Keep messages UP TO this step (inclusive)
             const msgsToKeep = keepMessagesUpToStep(currentConvMessages, idx);
 
@@ -1540,6 +1583,10 @@
                 await loadHistoryPanel();
                 await loadSandbox(newConv.id);
             }
+        };
+
+        window.forkStep = function (idx) {
+            openForkModal(idx);
         };
 
         // --- Fonction utilitaire commune pour tronquer l'historique jusqu'à une étape incluse ---
