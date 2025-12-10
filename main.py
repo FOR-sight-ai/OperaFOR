@@ -956,8 +956,25 @@ async def api_create_sandbox(request: Request):
     title = data.get("title") or f"{now}"
     read_only = data.get("read_only", False)
     messages = data.get("messages")
+    source_id = data.get("source_id")
+
     if not isinstance(messages, list):
         messages = []
+
+    # Handle file copying for forks
+    if source_id:
+        convs = load_all_sandboxes()
+        if source_id in convs:
+            source_path = get_sandbox_path(source_id)
+            if os.path.exists(source_path):
+                import shutil
+                target_path = os.path.join(SANDBOXES_DIR, conv_id)
+                try:
+                    # Create target directory and copy files
+                    shutil.copytree(source_path, target_path, ignore=shutil.ignore_patterns('.git', 'conversation.json'))
+                except Exception as e:
+                    print(f"Error copying files during fork: {e}")
+
     conv = { "id": conv_id, "title": title, "read_only": read_only, "messages": messages }
     convs = load_all_sandboxes()
     convs[conv_id] = conv

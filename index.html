@@ -799,6 +799,16 @@
             switchView('timeline');
         };
 
+        document.getElementById('sidebar-toggle').onclick = function () {
+            document.querySelector('.sidebar').classList.toggle('open');
+            document.getElementById('sidebar-overlay').classList.toggle('open');
+        };
+
+        document.getElementById('sidebar-overlay').onclick = function () {
+            document.querySelector('.sidebar').classList.remove('open');
+            document.getElementById('sidebar-overlay').classList.remove('open');
+        };
+
         document.getElementById('chatViewBtn').onclick = function () {
             switchView('chat');
         };
@@ -862,11 +872,13 @@
             if (!res.ok) return null;
             return await res.json();
         }
-        async function createSandbox(title, readOnly) {
+        async function createSandbox(title, readOnly, sourceId = null) {
+            const body = { title, read_only: readOnly };
+            if (sourceId) body.source_id = sourceId;
             const res = await fetch('/sandboxes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title, read_only: readOnly })
+                body: JSON.stringify(body)
             });
             if (!res.ok) return null;
             return await res.json();
@@ -1373,19 +1385,11 @@
         // Render timeline (legacy support mostly, or update to use structured)
         // For now, keep as is or minimal update.
         function renderTimeline() {
-            // ... existing implementation or simplified ...
-            // Reusing existing logic but maybe stripping tool outputs if we don't want them in timeline summary
-            // For brevity, let's keep the previous implementation or a simplified one.
-            // Since I am replacing the block containing renderChatView, I must include renderTimeline too
-            // or I will lose it if it was in the replaced block.
-            // It WAS in the replaced block (line 928 to 1398 covered almost everything).
-            // So I must provide renderTimeline.
-
             const timeline = document.getElementById('timelineContainer');
             timeline.innerHTML = '';
 
             if (!currentConvMessages || currentConvMessages.length === 0) {
-                timeline.innerHTML = '<div class="text-center text-gray-500 py-8">Welcome! ...</div>';
+                timeline.innerHTML = '<div class="text-center text-gray-500 py-8">Welcome! Start a new conversation.</div>';
                 return;
             }
 
@@ -1397,10 +1401,12 @@
                     if (currentStep) steps.push(currentStep);
                     currentStep = { prompt: msg.content, responses: [], statuses: [msg.status || 'done'] };
                 } else if (msg.role === 'assistant') {
-                    // Logic to show summary
                     let summary = msg.content;
+                    if (msg._thoughts && (!summary || summary === msg._thoughts)) {
+                        summary = msg._thoughts;
+                    }
                     if (msg.tool_calls && msg.tool_calls.length > 0) {
-                        summary = `[Used ${msg.tool_calls.length} tools] ` + summary;
+                        summary = `<span class="text-xs font-mono bg-blue-50 text-blue-600 px-1 rounded mr-1 inline-block mb-1"><i class="fas fa-tools"></i> ${msg.tool_calls.length} tools</span> ` + (summary || '');
                     }
 
                     if (!currentStep) {
@@ -1424,24 +1430,117 @@
                 let icon = lastStatus === 'pending' ? 'fa-spinner animate-spin text-yellow-500' : (lastStatus === 'error' ? 'fa-exclamation text-red-600' : 'fa-check text-green-600');
                 let bg = lastStatus === 'pending' ? 'bg-yellow-100' : (lastStatus === 'error' ? 'bg-red-100' : 'bg-green-100');
 
+                const responsesHtml = step.responses.map(r => {
+                    return `
+                    <div class="mt-2 text-sm text-gray-600 bg-gray-50 p-3 rounded border border-gray-100">
+                        <details open>
+                            <summary class="cursor-pointer text-xs font-semibold text-gray-500 uppercase select-none mb-1 outline-none">Output</summary>
+                            <div class="markdown-body mt-1">
+                                ${DOMPurify.sanitize(marked.parse(r || ''))}
+                            </div>
+                        </details>
+                    </div>`;
+                }).join('');
+
+                const buttonsHtml = `
+                    <div class="flex space-x-2 mt-2 justify-end border-t border-gray-100 pt-2">
+                         <button onclick="rerunStep(${idx})" class="text-gray-400 hover:text-blue-600 text-xs px-2 py-1 rounded hover:bg-blue-50 transition-colors" title="Rerun from here">
+                            <i class="fas fa-sync-alt mr-1"></i> Rerun
+                         </button>
+                         <button onclick="deleteStep(${idx})" class="text-gray-400 hover:text-red-600 text-xs px-2 py-1 rounded hover:bg-red-50 transition-colors" title="Delete from here">
+                            <i class="fas fa-trash mr-1"></i> Delete
+                         </button>
+                         <button onclick="forkStep(${idx})" class="text-gray-400 hover:text-purple-600 text-xs px-2 py-1 rounded hover:bg-purple-50 transition-colors" title="Fork from here">
+                            <i class="fas fa-code-branch mr-1"></i> Fork
+                         </button>
+                    </div>
+                `;
+
                 const stepDiv = document.createElement('div');
                 stepDiv.className = `relative z-10`;
                 stepDiv.innerHTML = `
                     <div class="flex items-start">
                          <div class="relative flex items-center mr-4" style="transform: translateX(-26px);">
-                             <div class="flex-shrink-0 h-10 w-10 rounded-full ${bg} flex items-center justify-center">
+                             <div class="flex-shrink-0 h-10 w-10 rounded-full ${bg} flex items-center justify-center border-2 border-white shadow-sm">
                                  <i class="fas ${icon}"></i>
                              </div>
                          </div>
-                         <div class="flex-1">
-                             <h4 class="font-medium text-gray-800">${step.prompt}</h4>
-                             <div class="text-xs text-gray-500">${statusText}</div>
+                         <div class="flex-1 bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                             <h4 class="font-medium text-gray-800">${step.prompt ? DOMPurify.sanitize(step.prompt) : '<em class="text-gray-400">System/Start</em>'}</h4>
+                             ${responsesHtml}
+                             <div class="flex items-center justify-between mt-2">
+                                <div class="text-xs text-gray-500 uppercase tracking-wide font-semibold">${statusText}</div>
+                             </div>
+                             ${lastStatus === 'done' ? buttonsHtml : ''}
                          </div>
                     </div>
                 `;
                 timeline.appendChild(stepDiv);
             });
         }
+
+        // Expose functions to global scope for onclick handlers
+        window.rerunStep = async function (idx) {
+            let userStepCount = 0;
+            let cutoffIdx = -1;
+            let prompt = "";
+
+            for (let i = 0; i < currentConvMessages.length; i++) {
+                if (currentConvMessages[i].role === 'user') {
+                    if (userStepCount === idx) {
+                        cutoffIdx = i + 1;
+                        prompt = currentConvMessages[i].content;
+                        break;
+                    }
+                    userStepCount++;
+                }
+            }
+
+            if (cutoffIdx !== -1) {
+                if (confirm('Re-run step "' + (prompt.length > 30 ? prompt.substring(0, 30) + '...' : prompt) + '"? This will delete all subsequent messages.')) {
+                    // Slice messages to include the user prompt but remove answers
+                    currentConvMessages = currentConvMessages.slice(0, cutoffIdx);
+                    await patchMessagesOnBackend();
+                    // Run with the prompt
+                    await run(prompt);
+                }
+            }
+        };
+
+        window.deleteStep = async function (idx) {
+            if (!confirm('Delete this step and all following messages? This cannot be undone.')) return;
+
+            if (idx === 0) {
+                currentConvMessages = [];
+            } else {
+                // Keep messages up to the previous step
+                currentConvMessages = keepMessagesUpToStep(currentConvMessages, idx - 1);
+            }
+            await patchMessagesOnBackend();
+            await loadSandbox(currentConvId);
+        };
+
+        window.forkStep = async function (idx) {
+            const titleElem = document.getElementById('currentConvTitle');
+            const currentTitle = titleElem ? titleElem.textContent : 'Sandbox';
+            const newTitle = prompt("Enter title for the new forked knowledge base:", "Fork of " + currentTitle);
+            if (!newTitle) return;
+
+            // Keep messages UP TO this step (inclusive)
+            const msgsToKeep = keepMessagesUpToStep(currentConvMessages, idx);
+
+            const newConv = await createSandbox(newTitle, false, currentConvId);
+            if (newConv && newConv.id) {
+                await fetch(`/sandboxes/${newConv.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: msgsToKeep })
+                });
+                // Reload history and switch
+                await loadHistoryPanel();
+                await loadSandbox(newConv.id);
+            }
+        };
 
         // --- Fonction utilitaire commune pour tronquer l'historique jusqu'à une étape incluse ---
         function keepMessagesUpToStep(messages, idx) {
