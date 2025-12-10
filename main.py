@@ -12,10 +12,7 @@ import json
 import sys
 from datetime import datetime
 import subprocess
-import asyncio
-import http.client
-import urllib.parse
-import io
+
 import base64
 
 
@@ -430,15 +427,9 @@ def search_files_sandbox(sandbox_id: str, pattern: str) -> List[str]:
     if not os.path.exists(sandbox_path):
         return ["Sandbox directory does not exist."]
     
-    # Use glob with recursive search
-    # Note: glob.glob with recursive=True requires ** in pattern for recursive
-    # But user might just provide *.py. 
-    # Let's support simple filename matching recursively manually or use glob's ability
-    
-    # better approach: walk and match
+    # walk and match
     import fnmatch
     matches = []
-    start_time = datetime.now()
     
     for root, dirs, files in os.walk(sandbox_path):
         # Skip git
@@ -449,8 +440,6 @@ def search_files_sandbox(sandbox_id: str, pattern: str) -> List[str]:
             if fnmatch.fnmatch(name, pattern):
                 rel_path = os.path.relpath(os.path.join(root, name), sandbox_path)
                 matches.append(rel_path)
-        
-        # Also match directories if needed? The request said "info in which file", so files mostly.
     
     if not matches:
         return [f"No files found matching pattern '{pattern}'"]
@@ -755,60 +744,9 @@ DEFAULT_CONFIG = {
     }
 }
 
-async def simple_llm_call(messages: List[Dict], tools: List[Dict], config: Dict) -> Dict:
-    """Make a call to the LLM."""
-    endpoint = config.get("llm", {}).get("endpoint", "https://openrouter.ai/api/v1")
-    api_key = config.get("llm", {}).get("apiKey")
-    model = config.get("llm", {}).get("model", "deepseek/deepseek-chat")
-    
-    # Parse URL
-    parsed = urllib.parse.urlparse(endpoint)
-    host = parsed.netloc
-    path = parsed.path.rstrip('/') + "/chat/completions"
-    
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    
-    payload = {
-        "model": model,
-        "messages": messages,
-        "tools": tools,
-        "stream": True # We will handle streaming support or just simple wait?
-                       # Task said "make a simple succesion of calls to an LLM"
-                       # But existing code used streaming response. 
-                       # Let's keep stream=True for UX but we need to handle it.
-                       # For the simple initial implementation, let's use stream=False in the internal call logic 
-                       # OR handle SSE. Since I need to return an iterator for the runAgent, handling SSE is better.
-        # However, to minimize complexity for the logic loop (call -> tool -> call), 
-        # it's easier to use stream=False for the "thinking" part or just handle full response.
-        # But user wants to see progress.
-        # Let's use stream=True and yield chunks.
-    }
-    
-    # Actually, using standard library for SSE is painful. 
-    # I'll use stream=False and simulated streaming or just wait.
-    # The requirement is "simple succession of calls".
-    # User said "minimize footprint".
-    # I'll implement a non-streaming generator for simplicity of implementation first, 
-    # but yield the chunks if I can.
-    
-    # Let's try non-streaming first for robustness of the loop, 
-    # and maybe just yield the final text. 
-    # BUT the runAgent yield logic is expected by frontend.
-    
-    # Let's do stream=False for tool calls and stream=True for final answer? 
-    # No, we don't know if it's final.
-    
-    # Let's use `requests` library since I added it to pyproject.toml?
-    # No I added `requests` in the previous step? 
-    # Wait, I added `requests` in the `replace_file_content` call. Yes.
-    # So I can use `requests`.
-    
-    pass 
+ 
 
-# Retrying `simple_llm_call` with `requests`
+# Helper for LLM calls with retries
 
 def call_llm(messages, tools, config):
     import time
@@ -919,7 +857,7 @@ async def runAgent(sandbox_id):
     current_tools = TOOL_DEFINITIONS
     if read_only:
         # Filter out writing tools
-        read_only_tool_names = ["list_sandbox_files", "read_file_sandbox"]
+        read_only_tool_names = ["list_sandbox_files", "read_file_sandbox", "get_folder_structure_sandbox", "search_files_sandbox", "search_content_sandbox", "get_file_info_sandbox"]
         current_tools = [t for t in TOOL_DEFINITIONS if t["function"]["name"] in read_only_tool_names]
         system_prompt = f"You are a coding assistant. You have access to a sandbox environment with ID {sandbox_id}. This sandbox is pending READ-ONLY mode. You can ONLY read files. You CANNOT write, edit, or delete files. Use the provided tools."
     else:
@@ -962,14 +900,7 @@ async def runAgent(sandbox_id):
             
             # Yield content if any
             if content:
-                # If we have thoughts mixed with content (e.g. CoT), we might want to separate them later. 
-                # For now, let's assume content is the "thought" or "answer".
-                # Unless we have tool calls, everything is "content" or "thought".
-                # But typically modern models put CoT in content.
-                # We'll emit it as "content" for now, frontend can render it.
-                # Actually, if there are tool calls, the content is often the "thought" explaining why.
-                # Let's just send "content" and let frontend decide or just display it.
-                # IMPROVEMENT: send as "thought" if tool_calls is not empty?
+                # Determine message type: if tools are called, content is usually "thought"
                 msg_type = "thought" if tool_calls else "content"
                 yield json.dumps({"type": msg_type, "data": content}) + "\n"
                 
@@ -1070,15 +1001,8 @@ async def runAgent(sandbox_id):
                 # Use agent_success flag to determine status
                 final_status = "done" if agent_success else "error"
                 
-                # If we failed (or cancelled), we might want to also append what we have so far?
-                # For simplicity, if success: append new messages with "done"
-                # If failed: append new messages with "done" (for partials) and maybe an error message at end?
-                # Or just mark all new interactions as "done" and append error if exception caught?
-                
-                # Let's simplify:
-                # 1. Recover any new messages generated (partially or fully)
-                # 2. Append them
-                # 3. If failed/cancelled, append an extra error message
+                # Recover any new messages and append them
+
                 
                 new_msgs = openai_messages[initial_openai_count:]
                 for msg in new_msgs:
@@ -1086,13 +1010,8 @@ async def runAgent(sandbox_id):
                      messages.append(msg)
                 
                 if not agent_success:
-                     # Check if we already have an error message?
-                     # The try/except block might have yielded one but maybe not added to openai_messages?
-                     # If it was a disconnect, we won't have an error message in openai_messages.
                      messages.append({"role": "assistant", "content": "Generation interrupted or failed.", "status": "error"})
                 
-                # --- FIX: Update the User message status ---
-                # The frontend sets the triggering user message to 'pending'. We must mark it as done/error.
                 # We look for the *last* user message.
                 for i in range(len(messages) - 1, -1, -1):
                     if messages[i].get("role") == "user":
