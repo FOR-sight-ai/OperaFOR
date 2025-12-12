@@ -585,15 +585,15 @@
   "llm": {
     "endpoint": "https://openrouter.ai/api/v1",
     "model": "deepseek/deepseek-chat-v3-0324:free",
-    "apiKey": "APIKEY",
-    "servers": [
-      {
-        "type": "http",
-        "config": {
-          "url": "http://localhost:9000/mcp"
-        }
-      }
-    ]
+    "apiKey": "APIKEY"
+  },
+  "context_management": {
+    "enabled": true,
+    "strategy": "hybrid",
+    "max_tokens": 4000,
+    "summarization_threshold": 3000,
+    "preserve_recent_messages": 5,
+    "preserve_system_prompt": true
   }
 
 }`;

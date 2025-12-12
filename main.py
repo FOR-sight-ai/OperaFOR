@@ -14,6 +14,7 @@ from datetime import datetime
 import subprocess
 
 import base64
+from context_manager import apply_context_strategy, count_messages_tokens
 
 
 # Configure logging
@@ -741,6 +742,14 @@ DEFAULT_CONFIG = {
         "endpoint": "https://openrouter.ai/api/v1",
         "model": "deepseek/deepseek-chat",
         "apiKey": "your_api_key"
+    },
+    "context_management": {
+        "enabled": True,
+        "strategy": "hybrid",
+        "max_tokens": 4000,
+        "summarization_threshold": 3000,
+        "preserve_recent_messages": 5,
+        "preserve_system_prompt": True
     }
 }
 
@@ -864,6 +873,24 @@ async def runAgent(sandbox_id):
         system_prompt = f"You are a coding assistant. You have access to a sandbox environment with ID {sandbox_id}. You can read, write, edit files. Prefer editing files over overwriting them. Use the provided tools."
     
     openai_messages.insert(0, {"role": "system", "content": system_prompt})
+    
+    # Apply context management before agent loop
+    context_config = config.get("context_management", {})
+    
+    if context_config.get("enabled", True):
+        try:
+            openai_messages, context_stats = apply_context_strategy(
+                openai_messages,
+                context_config,
+                config.get("llm", {})
+            )
+            
+            # Log context reduction silently
+            if context_stats and context_stats.get("strategy") not in ["none", "disabled"]:
+                logger.info(f"Context reduction applied: {context_stats}")
+        except Exception as e:
+            logger.error(f"Error applying context management: {e}")
+            # Continue with original messages on error
     
     # Agent Loop
     max_turns = 10
