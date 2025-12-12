@@ -1,4 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
+sys.setrecursionlimit(sys.getrecursionlimit() * 5)
 import os
 from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
@@ -17,7 +19,7 @@ a = Analysis(
     hookspath=['hooks'],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['torch', 'tensorflow', 'pandas', 'numpy', 'scipy', 'matplotlib', 'pyarrow', 'notebook', 'jupyter', 'lxml', 'openpyxl', 'sympy', 'transformers', 'duckduckgo_search'],
     noarchive=False,
     optimize=0,
 )
@@ -32,7 +34,7 @@ exe = EXE(
     name='operafor',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
+    strip=True,
     upx=False,
     console=False,
     disable_windowed_traceback=False,
