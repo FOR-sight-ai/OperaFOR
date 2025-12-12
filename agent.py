@@ -13,6 +13,7 @@ from utils import (
 from tools import TOOL_DEFINITIONS, execute_tool
 from context_manager import apply_context_strategy
 from file_preprocessor import preprocess_sandbox_files
+from url_handler import process_urls_in_prompt
 
 
 logger = logging.getLogger(__name__)
@@ -22,30 +23,34 @@ def inject_sandbox_context(sandbox_id: str, openai_messages: list) -> list:
     """
     Inject sandbox file list into context if sandbox is not empty.
     This is ephemeral and not stored in conversation history.
+    The agent receives only the list of file paths, not their content.
+    This allows the agent to know what files exist (including URL downloads)
+    without consuming context with file contents.
     """
     from tools import list_sandbox_files
     import os
-    
+
     sandbox_path = get_sandbox_path(sandbox_id)
     if not os.path.exists(sandbox_path):
         return openai_messages
-    
+
     # Check if sandbox has any files
-    files = list_sandbox_files(sandbox_id)
+    # Use unlimited depth (None) to show all files including nested URL downloads
+    files = list_sandbox_files(sandbox_id, max_depth=None)
     if not files or files == ["No files found in this sandbox."] or files == ["Sandbox directory does not exist yet."]:
         return openai_messages
-    
-    # Create ephemeral context message
+
+    # Create ephemeral context message with file list only (no content)
     file_list_str = "\n".join(files)
     context_msg = {
         "role": "system",
-        "content": f"📁 Current files in sandbox:\n{file_list_str}\n\nYou can use these files in your work."
+        "content": f"📁 Current files in sandbox:\n{file_list_str}\n\nThese files are available for you to read and work with using the provided tools."
     }
-    
+
     # Insert after main system prompt (index 0)
     if len(openai_messages) > 0:
         openai_messages.insert(1, context_msg)
-    
+
     return openai_messages
 
 
@@ -125,6 +130,29 @@ async def runAgent(sandbox_id):
         return
 
     messages = conv.get("messages", [])
+
+    # --- URL PROCESSING: Process URLs in the last user message before building context ---
+    if messages:
+        # Get the last user message
+        last_user_msg_idx = None
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "user":
+                last_user_msg_idx = i
+                break
+
+        if last_user_msg_idx is not None:
+            last_user_msg = messages[last_user_msg_idx]
+            content = last_user_msg.get("content", "")
+
+            if content:
+                try:
+                    updated_content, url_results = process_urls_in_prompt(content, sandbox_id)
+                    if url_results:
+                        # Update the message content in place (don't save to conversation history yet)
+                        messages[last_user_msg_idx]["content"] = updated_content
+                        logger.info(f"Processed URLs in user message: {len(url_results)} files imported")
+                except Exception as e:
+                    logger.error(f"Error processing URLs in message: {e}")
 
     # --- PREPROCESSING: Convert non-text files before agent loop ---
     try:

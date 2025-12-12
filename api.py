@@ -8,7 +8,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from url_handler import process_urls_in_prompt
 from utils import (
     load_all_sandboxes,
     save_all_sandboxes,
@@ -131,18 +130,7 @@ async def api_add_message(conv_id: str, request: Request):
     conv = convs.get(conv_id)
     if conv is None:
         return JSONResponse(status_code=404, content={"error": "Not found"})
-    
-    # Process URLs in user messages
-    if data.get("role") == "user" and "content" in data:
-        try:
-            updated_content, url_results = process_urls_in_prompt(data["content"], conv_id)
-            if url_results:
-                # Update message content with download results
-                data["content"] = updated_content
-        except Exception as e:
-            # Log error but don't fail the message addition
-            print(f"Error processing URLs in message: {e}")
-    
+
     conv.setdefault("messages", []).append(data)
     convs[conv_id] = conv
     save_all_sandboxes(convs)

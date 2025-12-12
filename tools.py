@@ -11,13 +11,31 @@ from utils import get_sandbox_path, is_vlm
 
 # --- Tool Functions ---
 
-def list_sandbox_files(sandbox_id: str) -> List[str]:
-    """List all files in the sandbox directory."""
+def list_sandbox_files(sandbox_id: str, max_depth: int = None) -> List[str]:
+    """
+    List all files in the sandbox directory.
+
+    Args:
+        sandbox_id: The sandbox ID
+        max_depth: Maximum depth to traverse (None = unlimited, 1 = top-level only, etc.)
+    """
     sandbox_path = get_sandbox_path(sandbox_id)
     output_files = []
     if not os.path.exists(sandbox_path):
          return ["Sandbox directory does not exist yet."]
-    for root, _, files in os.walk(sandbox_path):
+
+    for root, dirs, files in os.walk(sandbox_path):
+        # Calculate current depth relative to sandbox_path
+        rel_root = os.path.relpath(root, sandbox_path)
+        if rel_root == '.':
+            current_depth = 0
+        else:
+            current_depth = rel_root.count(os.sep) + 1
+
+        # Skip directories beyond max_depth
+        if max_depth is not None and current_depth >= max_depth:
+            dirs[:] = []  # Don't traverse deeper
+
         for file in files:
             file_path = os.path.join(root, file)
             rel_path = os.path.relpath(file_path, sandbox_path)
@@ -25,6 +43,7 @@ def list_sandbox_files(sandbox_id: str) -> List[str]:
                 continue
             if os.path.isfile(file_path):
                 output_files.append(rel_path)
+
     if len(output_files) == 0:
         return ["No files found in this sandbox."]
     return output_files
