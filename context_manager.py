@@ -73,6 +73,94 @@ def count_messages_tokens(messages: List[Dict[str, Any]]) -> int:
     return sum(count_message_tokens(msg) for msg in messages)
 
 
+def group_messages(messages: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+    """
+    Group messages into atomic units that must stay together.
+    
+    An atomic unit is:
+    - An assistant message with tool_calls + all following tool messages
+    - A single message without tool dependencies
+    
+    Returns:
+        List of message groups (each group is a list of related messages)
+    """
+    groups = []
+    current_group = []
+    waiting_for_tools = False
+    expected_tool_ids = set()
+    
+    for msg in messages:
+        role = msg.get("role")
+        
+        if role == "assistant" and "tool_calls" in msg:
+            # Start a new group for this assistant message and its tool results
+            if current_group:
+                groups.append(current_group)
+            current_group = [msg]
+            waiting_for_tools = True
+            # Track which tool call IDs we're expecting results for
+            expected_tool_ids = {tc["id"] for tc in msg.get("tool_calls", [])}
+        elif role == "tool" and waiting_for_tools:
+            # This tool message belongs to the current group
+            current_group.append(msg)
+            # Remove this tool_call_id from expected set
+            tool_call_id = msg.get("tool_call_id")
+            if tool_call_id in expected_tool_ids:
+                expected_tool_ids.remove(tool_call_id)
+            # If we've received all expected tool results, close the group
+            if not expected_tool_ids:
+                groups.append(current_group)
+                current_group = []
+                waiting_for_tools = False
+        else:
+            # This is a standalone message (user, system, or assistant without tools)
+            if current_group:
+                # Close any pending group first
+                groups.append(current_group)
+                current_group = []
+                waiting_for_tools = False
+            groups.append([msg])
+    
+    # Don't forget the last group if any
+    if current_group:
+        groups.append(current_group)
+    
+    return groups
+
+
+def validate_message_structure(messages: List[Dict[str, Any]]) -> bool:
+    """
+    Validate that message structure follows OpenAI API requirements.
+    
+    Specifically checks that every tool message has a preceding assistant
+    message with a matching tool_call_id.
+    
+    Returns:
+        True if structure is valid, False otherwise
+    """
+    # Track tool_call_ids from assistant messages
+    available_tool_call_ids = set()
+    
+    for msg in messages:
+        role = msg.get("role")
+        
+        if role == "assistant" and "tool_calls" in msg:
+            # Add all tool_call_ids from this message
+            for tc in msg.get("tool_calls", []):
+                available_tool_call_ids.add(tc["id"])
+        elif role == "tool":
+            # Check if this tool message has a valid parent
+            tool_call_id = msg.get("tool_call_id")
+            if tool_call_id not in available_tool_call_ids:
+                logger.error(
+                    f"Invalid message structure: tool message with tool_call_id={tool_call_id} "
+                    f"has no preceding assistant message with matching tool_call"
+                )
+                return False
+    
+    return True
+
+
 def summarize_messages_with_llm(
     messages: List[Dict[str, Any]], 
     llm_config: Dict[str, Any]
@@ -181,19 +269,39 @@ def apply_rolling_window_strategy(
             "messages_summarized": 0
         }
     
-    # Separate system messages, old messages, and recent messages
-    system_messages = []
-    middle_messages = []
-    recent_messages = []
+    # Group messages into atomic units
+    message_groups = group_messages(messages)
     
-    for i, msg in enumerate(messages):
-        if preserve_system and msg.get("role") == "system":
-            system_messages.append(msg)
-        elif i >= len(messages) - preserve_recent:
-            recent_messages.append(msg)
+    # Separate system messages, old groups, and recent groups
+    system_messages = []
+    middle_groups = []
+    recent_groups = []
+    
+    # Count how many individual messages we want to preserve
+    # We'll work backwards from the end, preserving whole groups
+    messages_from_end = 0
+    for i in range(len(message_groups) - 1, -1, -1):
+        group = message_groups[i]
+        
+        # Check if this is a system message group
+        if len(group) == 1 and group[0].get("role") == "system":
+            if preserve_system:
+                system_messages.insert(0, group)
+            continue
+        
+        # Count messages in this group
+        group_msg_count = len(group)
+        
+        if messages_from_end < preserve_recent:
+            # We still need to preserve more recent messages
+            recent_groups.insert(0, group)
+            messages_from_end += group_msg_count
         else:
-            if msg.get("role") != "system":  # Don't duplicate system messages
-                middle_messages.append(msg)
+            # This group goes into the middle (to be summarized)
+            middle_groups.insert(0, group)
+    
+    # Flatten groups back to messages for summarization
+    middle_messages = [msg for group in middle_groups for msg in group]
     
     # If we still need to reduce, summarize the middle messages
     if middle_messages:
@@ -206,10 +314,27 @@ def apply_rolling_window_strategy(
             "content": f"[Conversation Summary - {len(middle_messages)} messages compressed]: {summary_text}"
         }
         
+        # Flatten all groups back to messages
+        system_msgs_flat = [msg for group in system_messages for msg in group]
+        recent_msgs_flat = [msg for group in recent_groups for msg in group]
+        
         # Reconstruct message list
-        reduced_messages = system_messages + [summary_message] + recent_messages
+        reduced_messages = system_msgs_flat + [summary_message] + recent_msgs_flat
     else:
-        reduced_messages = system_messages + recent_messages
+        # No middle messages to summarize
+        system_msgs_flat = [msg for group in system_messages for msg in group]
+        recent_msgs_flat = [msg for group in recent_groups for msg in group]
+        reduced_messages = system_msgs_flat + recent_msgs_flat
+    
+    # Validate the structure before returning
+    if not validate_message_structure(reduced_messages):
+        logger.warning("Message structure validation failed after rolling window reduction, returning original messages")
+        return messages, {
+            "strategy": "rolling_window_failed",
+            "original_tokens": total_tokens,
+            "reduced_tokens": total_tokens,
+            "error": "Structure validation failed"
+        }
     
     reduced_tokens = count_messages_tokens(reduced_messages)
     
@@ -220,6 +345,7 @@ def apply_rolling_window_strategy(
         "messages_summarized": len(middle_messages),
         "compression_ratio": round(reduced_tokens / total_tokens, 2) if total_tokens > 0 else 1.0
     }
+
 
 
 def apply_truncation_strategy(
@@ -237,35 +363,63 @@ def apply_truncation_strategy(
     
     total_tokens = count_messages_tokens(messages)
     
-    # Separate system messages
-    system_messages = [msg for msg in messages if msg.get("role") == "system"] if preserve_system else []
-    non_system_messages = [msg for msg in messages if msg.get("role") != "system"]
+    # Group messages into atomic units
+    message_groups = group_messages(messages)
+    
+    # Separate system messages and non-system groups
+    system_groups = []
+    non_system_groups = []
+    
+    for group in message_groups:
+        if len(group) == 1 and group[0].get("role") == "system":
+            if preserve_system:
+                system_groups.append(group)
+        else:
+            non_system_groups.append(group)
     
     # Calculate budget for non-system messages
-    system_tokens = count_messages_tokens(system_messages)
+    system_msgs_flat = [msg for group in system_groups for msg in group]
+    system_tokens = count_messages_tokens(system_msgs_flat)
     remaining_budget = max_tokens - system_tokens
     
-    # Take messages from the end until we hit the budget
-    reduced_non_system = []
+    # Take groups from the end until we hit the budget
+    reduced_non_system_groups = []
     current_tokens = 0
     
-    for msg in reversed(non_system_messages):
-        msg_tokens = count_message_tokens(msg)
-        if current_tokens + msg_tokens <= remaining_budget:
-            reduced_non_system.insert(0, msg)
-            current_tokens += msg_tokens
+    for group in reversed(non_system_groups):
+        group_tokens = sum(count_message_tokens(msg) for msg in group)
+        if current_tokens + group_tokens <= remaining_budget:
+            reduced_non_system_groups.insert(0, group)
+            current_tokens += group_tokens
         else:
             break
     
-    reduced_messages = system_messages + reduced_non_system
+    # Flatten groups back to messages
+    reduced_non_system = [msg for group in reduced_non_system_groups for msg in group]
+    reduced_messages = system_msgs_flat + reduced_non_system
+    
+    # Validate the structure before returning
+    if not validate_message_structure(reduced_messages):
+        logger.warning("Message structure validation failed after truncation, returning original messages")
+        return messages, {
+            "strategy": "truncation_failed",
+            "original_tokens": total_tokens,
+            "reduced_tokens": total_tokens,
+            "error": "Structure validation failed"
+        }
+    
     reduced_tokens = count_messages_tokens(reduced_messages)
+    
+    total_non_system_msgs = sum(len(group) for group in non_system_groups)
+    reduced_non_system_msgs = sum(len(group) for group in reduced_non_system_groups)
     
     return reduced_messages, {
         "strategy": "truncation",
         "original_tokens": total_tokens,
         "reduced_tokens": reduced_tokens,
-        "messages_removed": len(non_system_messages) - len(reduced_non_system)
+        "messages_removed": total_non_system_msgs - reduced_non_system_msgs
     }
+
 
 
 def apply_hybrid_strategy(
@@ -292,21 +446,52 @@ def apply_hybrid_strategy(
             "reduced_tokens": total_tokens
         }
     
-    # Identify pinned messages (system + first user message)
-    pinned_messages = []
-    middle_messages = []
-    recent_messages = []
+    # Group messages into atomic units
+    message_groups = group_messages(messages)
     
-    for i, msg in enumerate(messages):
-        role = msg.get("role")
+    # Identify pinned groups (system + first user message)
+    pinned_groups = []
+    middle_groups = []
+    recent_groups = []
+    
+    first_user_seen = False
+    messages_from_end = 0
+    
+    # First pass: identify pinned messages (system and first user)
+    for i, group in enumerate(message_groups):
+        if len(group) == 1:
+            msg = group[0]
+            role = msg.get("role")
+            
+            # Pin system messages
+            if role == "system":
+                pinned_groups.append(group)
+                continue
+            
+            # Pin first user message
+            if role == "user" and not first_user_seen:
+                pinned_groups.append(group)
+                first_user_seen = True
+                continue
+    
+    # Second pass: separate middle and recent (working backwards)
+    for i in range(len(message_groups) - 1, -1, -1):
+        group = message_groups[i]
         
-        # Pin system messages and first user message
-        if role == "system" or (role == "user" and i == 0) or (role == "user" and i == 1):
-            pinned_messages.append(msg)
-        elif i >= len(messages) - preserve_recent:
-            recent_messages.append(msg)
+        # Skip if already pinned
+        if group in pinned_groups:
+            continue
+        
+        group_msg_count = len(group)
+        
+        if messages_from_end < preserve_recent:
+            recent_groups.insert(0, group)
+            messages_from_end += group_msg_count
         else:
-            middle_messages.append(msg)
+            middle_groups.insert(0, group)
+    
+    # Flatten groups back to messages
+    middle_messages = [msg for group in middle_groups for msg in group]
     
     # Summarize middle messages
     if middle_messages:
@@ -315,9 +500,24 @@ def apply_hybrid_strategy(
             "role": "system",
             "content": f"[Context Summary]: {summary_text}"
         }
-        reduced_messages = pinned_messages + [summary_message] + recent_messages
+        
+        pinned_msgs_flat = [msg for group in pinned_groups for msg in group]
+        recent_msgs_flat = [msg for group in recent_groups for msg in group]
+        reduced_messages = pinned_msgs_flat + [summary_message] + recent_msgs_flat
     else:
-        reduced_messages = pinned_messages + recent_messages
+        pinned_msgs_flat = [msg for group in pinned_groups for msg in group]
+        recent_msgs_flat = [msg for group in recent_groups for msg in group]
+        reduced_messages = pinned_msgs_flat + recent_msgs_flat
+    
+    # Validate the structure before returning
+    if not validate_message_structure(reduced_messages):
+        logger.warning("Message structure validation failed after hybrid reduction, returning original messages")
+        return messages, {
+            "strategy": "hybrid_failed",
+            "original_tokens": total_tokens,
+            "reduced_tokens": total_tokens,
+            "error": "Structure validation failed"
+        }
     
     reduced_tokens = count_messages_tokens(reduced_messages)
     
@@ -328,6 +528,7 @@ def apply_hybrid_strategy(
         "messages_summarized": len(middle_messages),
         "compression_ratio": round(reduced_tokens / total_tokens, 2) if total_tokens > 0 else 1.0
     }
+
 
 
 def apply_context_strategy(
