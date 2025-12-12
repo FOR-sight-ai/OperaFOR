@@ -87,8 +87,11 @@ def download_web_url(url: str, sandbox_path: str) -> str:
             url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
             filename = f'page_{url_hash}.html'
         
-        # Download with timeout
-        response = requests.get(url, timeout=30, allow_redirects=True)
+        # Download with timeout and User-Agent header
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(url, timeout=30, allow_redirects=True, headers=headers)
         response.raise_for_status()
         
         # Save to file
