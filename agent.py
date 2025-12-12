@@ -181,7 +181,8 @@ async def runAgent(sandbox_id):
             openai_messages, context_stats = apply_context_strategy(
                 openai_messages,
                 context_config,
-                config.get("llm", {})
+                config.get("llm", {}),
+                sandbox_id=sandbox_id  # Pass sandbox_id for caching
             )
             
             # Log context reduction silently

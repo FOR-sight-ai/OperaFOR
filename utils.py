@@ -156,3 +156,38 @@ def is_vlm(model_name: str) -> bool:
     model_lower = model_name.lower()
     vision_keywords = ["vision", "4o", "claude-3", "gemini", "sonnet", "opus", "pixtral", "llavanext"]
     return any(keyword in model_lower for keyword in vision_keywords)
+
+
+# --- Context cache management ---
+
+def clear_sandbox_cache(sandbox_id: str) -> bool:
+    """
+    Clear context cache for a specific sandbox.
+    Useful for debugging or when cache becomes corrupted.
+    
+    Returns:
+        True if cache was cleared successfully, False otherwise
+    """
+    try:
+        from context_cache import invalidate_cache
+        invalidate_cache(sandbox_id)
+        return True
+    except Exception as e:
+        print(f"Error clearing cache for sandbox {sandbox_id}: {e}")
+        return False
+
+
+def get_cache_stats(sandbox_id: str) -> dict:
+    """
+    Get cache statistics for a sandbox.
+    
+    Returns:
+        Dictionary with cache statistics or empty dict if unavailable
+    """
+    try:
+        from context_cache import load_stats
+        return load_stats(sandbox_id)
+    except Exception as e:
+        print(f"Error loading cache stats for sandbox {sandbox_id}: {e}")
+        return {}
+

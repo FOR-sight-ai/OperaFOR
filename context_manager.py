@@ -13,6 +13,13 @@ import json
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 
+try:
+    from context_cache import get_incremental_summary
+    CACHE_AVAILABLE = True
+except ImportError:
+    CACHE_AVAILABLE = False
+    logging.warning("context_cache module not available, caching disabled")
+
 logger = logging.getLogger(__name__)
 
 
@@ -163,12 +170,25 @@ def validate_message_structure(messages: List[Dict[str, Any]]) -> bool:
 
 def summarize_messages_with_llm(
     messages: List[Dict[str, Any]], 
-    llm_config: Dict[str, Any]
+    llm_config: Dict[str, Any],
+    sandbox_id: Optional[str] = None
 ) -> str:
     """
     Use the LLM to create a summary of the given messages.
     Returns a concise summary string.
+    
+    If sandbox_id is provided and caching is available, will use incremental
+    summarization with cache.
     """
+    # Try to use cache if available
+    if sandbox_id and CACHE_AVAILABLE:
+        try:
+            summary = get_incremental_summary(sandbox_id, messages, llm_config)
+            if summary:
+                logger.info(f"Using cached/incremental summary for {len(messages)} messages")
+                return summary
+        except Exception as e:
+            logger.warning(f"Cache lookup failed, falling back to direct LLM call: {e}")
     import requests
     
     # Build a prompt for summarization
@@ -245,7 +265,8 @@ Provide a concise summary in 2-4 sentences:"""
 def apply_rolling_window_strategy(
     messages: List[Dict[str, Any]],
     config: Dict[str, Any],
-    llm_config: Dict[str, Any]
+    llm_config: Dict[str, Any],
+    sandbox_id: Optional[str] = None
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Apply rolling window summarization strategy.
@@ -306,7 +327,7 @@ def apply_rolling_window_strategy(
     # If we still need to reduce, summarize the middle messages
     if middle_messages:
         logger.info(f"Summarizing {len(middle_messages)} messages to reduce context")
-        summary_text = summarize_messages_with_llm(middle_messages, llm_config)
+        summary_text = summarize_messages_with_llm(middle_messages, llm_config, sandbox_id)
         
         # Create a summary message
         summary_message = {
@@ -425,7 +446,8 @@ def apply_truncation_strategy(
 def apply_hybrid_strategy(
     messages: List[Dict[str, Any]],
     config: Dict[str, Any],
-    llm_config: Dict[str, Any]
+    llm_config: Dict[str, Any],
+    sandbox_id: Optional[str] = None
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Apply hybrid strategy - preserve pinned messages + summarize middle + keep recent.
@@ -495,7 +517,7 @@ def apply_hybrid_strategy(
     
     # Summarize middle messages
     if middle_messages:
-        summary_text = summarize_messages_with_llm(middle_messages, llm_config)
+        summary_text = summarize_messages_with_llm(middle_messages, llm_config, sandbox_id)
         summary_message = {
             "role": "system",
             "content": f"[Context Summary]: {summary_text}"
@@ -534,7 +556,8 @@ def apply_hybrid_strategy(
 def apply_context_strategy(
     messages: List[Dict[str, Any]],
     context_config: Dict[str, Any],
-    llm_config: Dict[str, Any]
+    llm_config: Dict[str, Any],
+    sandbox_id: Optional[str] = None
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Main entry point for context reduction.
@@ -559,11 +582,11 @@ def apply_context_strategy(
     
     try:
         if strategy == "rolling_window":
-            return apply_rolling_window_strategy(messages, context_config, llm_config)
+            return apply_rolling_window_strategy(messages, context_config, llm_config, sandbox_id)
         elif strategy == "truncation":
             return apply_truncation_strategy(messages, context_config)
         elif strategy == "hybrid":
-            return apply_hybrid_strategy(messages, context_config, llm_config)
+            return apply_hybrid_strategy(messages, context_config, llm_config, sandbox_id)
         else:
             # Unknown strategy, return original
             logger.warning(f"Unknown context strategy: {strategy}")
