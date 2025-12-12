@@ -32,37 +32,39 @@ def list_sandbox_files(sandbox_id: str) -> List[str]:
 
 def read_file_sandbox(sandbox_id: str, file_name: str, model_name: str = None) -> str:
     """Read a file from the sandbox directory."""
+    from file_preprocessor import get_converted_file_path
+
     sandbox_path = get_sandbox_path(sandbox_id)
     file_path = os.path.join(sandbox_path, file_name)
     if not os.path.exists(file_path):
         return f"Error: File {file_name} not found"
-    
+
+    # Check if this is a PDF that has been preprocessed
     if file_name.lower().endswith(".pdf"):
-        import fitz  # PyMuPDF
-        if is_vlm(model_name):
+        # Determine expected format type
+        format_type = "image" if is_vlm(model_name) else "text"
+        converted_path = get_converted_file_path(file_path, format_type)
+
+        # If converted file exists, read from it
+        if os.path.exists(converted_path):
             try:
-                doc = fitz.open(file_path)
-                images = []
-                for db in doc:  # iterate through pages
-                    pix = db.get_pixmap()
-                    img_data = pix.tobytes("png")
-                    b64_img = base64.b64encode(img_data).decode("utf-8")
-                    images.append(b64_img)
-                doc.close()
-                return json.dumps({"__type__": "image", "images": images})
+                with open(converted_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+
+                # If it's image format, the content is JSON
+                if format_type == "image":
+                    # Validate it's proper JSON
+                    data = json.loads(content)
+                    if data.get("__type__") == "image":
+                        return content
+                else:
+                    return content
             except Exception as e:
-                 return f"Error reading PDF file: {e}"
-        else:
-            try:
-                doc = fitz.open(file_path)
-                text_content = []
-                for i, page in enumerate(doc):
-                    text = page.get_text()
-                    text_content.append(f"--- Page {i+1} ---\n{text}")
-                doc.close()
-                return "\n".join(text_content) if text_content else "PDF is empty or contains no extractable text."
-            except Exception as e:
-                return f"Error reading PDF file: {e}"
+                # Fall through to read original if converted file is corrupted
+                pass
+
+        # If no converted file, return error suggesting preprocessing should have happened
+        return f"Error: PDF file {file_name} has not been preprocessed. Please ensure file preprocessing runs before agent loop."
 
     try:
         with open(file_path, 'r') as f:

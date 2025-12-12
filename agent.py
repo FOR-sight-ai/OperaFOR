@@ -12,6 +12,7 @@ from utils import (
 )
 from tools import TOOL_DEFINITIONS, execute_tool
 from context_manager import apply_context_strategy
+from file_preprocessor import preprocess_sandbox_files
 
 
 logger = logging.getLogger(__name__)
@@ -124,7 +125,17 @@ async def runAgent(sandbox_id):
         return
 
     messages = conv.get("messages", [])
-    
+
+    # --- PREPROCESSING: Convert non-text files before agent loop ---
+    try:
+        model_name = config.get("llm", {}).get("model")
+        conversions = preprocess_sandbox_files(sandbox_id, model_name)
+        if conversions:
+            logger.info(f"Preprocessed {len(conversions)} files: {conversions}")
+    except Exception as e:
+        logger.error(f"Error during file preprocessing: {e}")
+        # Continue even if preprocessing fails
+
     # --- PERSISTENCE: Save a pending assistant message ---
     # This ensures "Working..." is shown even after reload
     pending_msg = {"role": "assistant", "content": "", "status": "pending"}
