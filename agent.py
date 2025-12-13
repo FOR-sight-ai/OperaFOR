@@ -11,7 +11,7 @@ from utils import (
     CONFIG_PATH
 )
 from tools import TOOL_DEFINITIONS, execute_tool
-from context_manager import apply_context_strategy
+from context_manager import apply_context_strategy, count_messages_tokens
 from file_preprocessor import preprocess_sandbox_files
 from url_handler import process_urls_in_prompt
 
@@ -234,17 +234,48 @@ async def runAgent(sandbox_id):
     # Agent Loop
     max_turns = 10
     current_turn = 0
-    
+
     # We need to track new interactions to save them later
     # Initial openai_messages has system + history
     initial_openai_count = len(openai_messages)
-    
+
     agent_success = False
-    
+
+    # Context monitoring during agent run
+    max_context_tokens = context_config.get("max_context_during_run", 100000)
+
     try:
         while current_turn < max_turns:
             current_turn += 1
-            
+
+            # Check context size before each LLM call
+            current_context_tokens = count_messages_tokens(openai_messages)
+
+            if current_context_tokens > max_context_tokens:
+                logger.info(f"Context size ({current_context_tokens} tokens) exceeds threshold ({max_context_tokens} tokens). Applying compression...")
+
+                # Apply context compression during the run
+                try:
+                    openai_messages, compression_stats = apply_context_strategy(
+                        openai_messages,
+                        context_config,
+                        config.get("llm", {}),
+                        sandbox_id=sandbox_id
+                    )
+
+                    new_context_tokens = count_messages_tokens(openai_messages)
+                    logger.info(f"Context compressed from {current_context_tokens} to {new_context_tokens} tokens")
+
+                    # Yield a status message to the user
+                    yield json.dumps({
+                        "type": "system",
+                        "data": f"[Context compressed: {current_context_tokens} → {new_context_tokens} tokens]"
+                    }) + "\n"
+
+                except Exception as e:
+                    logger.error(f"Error during context compression: {e}")
+                    # Continue with original messages on error
+
             response_data = call_llm(openai_messages, current_tools, config)
             
             if "error" in response_data:

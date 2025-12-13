@@ -40,7 +40,8 @@ DEFAULT_CONFIG = {
         "max_tokens": 4000,
         "summarization_threshold": 3000,
         "preserve_recent_messages": 5,
-        "preserve_system_prompt": True
+        "preserve_system_prompt": True,
+        "max_context_during_run": 100000
     }
 }
 
