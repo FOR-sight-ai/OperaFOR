@@ -50,14 +50,20 @@ A standalone Windows executable is available on the [GitHub Releases page](https
 
 **URL Auto-Import**: Simply paste URLs in your messages and they'll be automatically imported to your sandbox:
 - **Web URLs**: `https://example.com/page.html` → downloaded to `downloads/example.com/page.html`
+- **Recursive Downloads**: Add keywords like "recursive", "crawl", or "level 1" to download linked pages
+  - Example: `Download https://docs.example.com recursive level 1` → downloads the page and all linked pages from the same domain (up to depth 1)
+  - Supports depth specification: "level 2", "depth 3", etc.
 - **File paths**: `/path/to/file.txt` or `C:\Users\file.txt` → copied to `imported/file.txt`
 - **Directories**: Entire folders are copied recursively (excluding `.git` and `__pycache__`)
 
-Example message:
+Example messages:
 ```
 Analyze https://github.com/user/repo/blob/main/README.md and compare it with /Users/me/Documents/notes.txt
 ```
-Both files will be automatically downloaded/copied to your sandbox before the LLM processes your request.
+```
+Download https://docs.python.org/3/library/os.html recursive level 1
+```
+Files will be automatically downloaded/copied to your sandbox. The LLM will see the file paths in its context and can read them using the provided tools.
 
 
 ## 📁 Project Structure

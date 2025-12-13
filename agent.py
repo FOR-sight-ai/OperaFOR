@@ -148,9 +148,9 @@ async def runAgent(sandbox_id):
                 try:
                     updated_content, url_results = process_urls_in_prompt(content, sandbox_id)
                     if url_results:
-                        # Update the message content in place (don't save to conversation history yet)
-                        messages[last_user_msg_idx]["content"] = updated_content
+
                         logger.info(f"Processed URLs in user message: {len(url_results)} files imported")
+                        # Optionally, you could yield a status message to the user here
                 except Exception as e:
                     logger.error(f"Error processing URLs in message: {e}")
 
