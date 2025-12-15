@@ -1625,9 +1625,9 @@
                     currentStep = { prompt: msg.content, responses: [], statuses: [msg.status || 'done'] };
                 } else if (msg.role === 'assistant') {
                     let summary = msg.content;
-                    if (msg._thoughts && (!summary || summary === msg._thoughts)) {
+                    /*if (msg._thoughts && (!summary || summary === msg._thoughts)) {
                         summary = msg._thoughts;
-                    }
+                    }*/
                     if (msg.tool_calls && msg.tool_calls.length > 0) {
                         summary = `<span class="text-xs font-mono bg-blue-50 text-blue-600 px-1 rounded mr-1 inline-block mb-1"><i class="fas fa-tools"></i> ${msg.tool_calls.length} tools</span> ` + (summary || '');
                     }
