@@ -38,10 +38,11 @@ DEFAULT_CONFIG = {
         "enabled": True,
         "strategy": "hybrid",
         "max_tokens": 4000,
-        "summarization_threshold": 3000,
-        "preserve_recent_messages": 5,
+        "summarization_threshold": 1500,  # Reduced from 3000 for earlier compression
+        "preserve_recent_messages": 3,    # Reduced from 5 to keep less context
         "preserve_system_prompt": True,
-        "max_context_during_run": 100000
+        "max_context_during_run": 20000,  # Reduced from 100000 to trigger more often
+        "max_tool_result_chars": 2000     # NEW: Truncate tool results to 2000 chars
     }
 }
 
