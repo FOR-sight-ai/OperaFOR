@@ -147,7 +147,7 @@ def truncate_tool_result(content: str, max_length: int = 2000, tool_name: str = 
         return content[:max_length] + f"\n\n[... {len(content) - max_length} characters truncated ...]"
 
 
-def compress_tool_messages(messages: List[Dict[str, Any]], max_tool_result_chars: int = 2000) -> List[Dict[str, Any]]:
+def compress_tool_messages(messages: List[Dict[str, Any]], max_tool_result_chars: int = 2000, preserve_latest_tool_results: int = 1) -> List[Dict[str, Any]]:
     """
     Compress tool messages by truncating large results.
     This is the PRIMARY compression mechanism for reducing context.
@@ -155,14 +155,31 @@ def compress_tool_messages(messages: List[Dict[str, Any]], max_tool_result_chars
     Args:
         messages: List of messages
         max_tool_result_chars: Maximum characters per tool result
+        preserve_latest_tool_results: Number of latest tool results to preserve uncompressed (default: 1)
 
     Returns:
         Messages with compressed tool results
     """
+    # First, identify the indices of tool messages (working backwards to find latest)
+    tool_message_indices = []
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "tool":
+            tool_message_indices.append(i)
+
+    # Determine which tool messages should be preserved (the latest N)
+    preserve_indices = set()
+    if preserve_latest_tool_results > 0 and tool_message_indices:
+        preserve_indices = set(tool_message_indices[-preserve_latest_tool_results:])
+
     compressed = []
 
-    for msg in messages:
+    for i, msg in enumerate(messages):
         if msg.get("role") == "tool":
+            # Skip compression for latest tool results
+            if i in preserve_indices:
+                compressed.append(msg)
+                continue
+
             # Get tool name from the message
             tool_name = msg.get("name", "unknown")
             content = msg.get("content", "")
@@ -384,9 +401,10 @@ def apply_rolling_window_strategy(
     preserve_recent = config.get("preserve_recent_messages", 3)  # Reduced from 5
     preserve_system = config.get("preserve_system_prompt", True)
     max_tool_result_chars = config.get("max_tool_result_chars", 2000)
+    preserve_latest_tool_results = config.get("preserve_latest_tool_results", 1)
 
     # Step 1: Compress tool results FIRST (most effective compression)
-    messages = compress_tool_messages(messages, max_tool_result_chars)
+    messages = compress_tool_messages(messages, max_tool_result_chars, preserve_latest_tool_results)
 
     total_tokens = count_messages_tokens(messages)
 
@@ -492,9 +510,10 @@ def apply_truncation_strategy(
     max_tokens = config.get("max_tokens", 4000)
     preserve_system = config.get("preserve_system_prompt", True)
     max_tool_result_chars = config.get("max_tool_result_chars", 2000)
+    preserve_latest_tool_results = config.get("preserve_latest_tool_results", 1)
 
     # Step 1: Compress tool results FIRST
-    messages = compress_tool_messages(messages, max_tool_result_chars)
+    messages = compress_tool_messages(messages, max_tool_result_chars, preserve_latest_tool_results)
 
     total_tokens = count_messages_tokens(messages)
 
@@ -574,10 +593,11 @@ def apply_hybrid_strategy(
     threshold = config.get("summarization_threshold", 1500)  # Reduced from 3000
     preserve_recent = config.get("preserve_recent_messages", 3)  # Reduced from 5
     max_tool_result_chars = config.get("max_tool_result_chars", 2000)
+    preserve_latest_tool_results = config.get("preserve_latest_tool_results", 1)
 
     # Step 1: Compress tool results FIRST (most impactful)
     original_token_count = count_messages_tokens(messages)
-    messages = compress_tool_messages(messages, max_tool_result_chars)
+    messages = compress_tool_messages(messages, max_tool_result_chars, preserve_latest_tool_results)
     total_tokens = count_messages_tokens(messages)
 
     tool_compression_saved = original_token_count - total_tokens

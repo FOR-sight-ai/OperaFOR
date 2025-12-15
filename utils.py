@@ -42,7 +42,8 @@ DEFAULT_CONFIG = {
         "preserve_recent_messages": 3,    # Reduced from 5 to keep less context
         "preserve_system_prompt": True,
         "max_context_during_run": 20000,  # Reduced from 100000 to trigger more often
-        "max_tool_result_chars": 2000     # NEW: Truncate tool results to 2000 chars
+        "max_tool_result_chars": 2000,    # Truncate tool results to 2000 chars
+        "preserve_latest_tool_results": 1  # Number of latest tool results to preserve uncompressed
     }
 }
 
