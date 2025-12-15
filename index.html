@@ -1684,9 +1684,15 @@
                 if (confirm('Re-run step "' + (prompt.length > 30 ? prompt.substring(0, 30) + '...' : prompt) + '"? This will delete all subsequent messages.')) {
                     // Slice messages to include the user prompt but remove answers
                     currentConvMessages = currentConvMessages.slice(0, cutoffIdx);
-                    await patchMessagesOnBackend();
-                    // Run with the prompt
-                    await run(prompt);
+                    const success = await patchMessagesOnBackend();
+                    if (success) {
+                        // Run with the prompt
+                        await run(prompt);
+                    } else {
+                        alert('Failed to update messages. Please try again.');
+                        // Reload to restore the correct state
+                        await loadSandbox(currentConvId);
+                    }
                 }
             }
         };
@@ -1700,8 +1706,14 @@
                 // Keep messages up to the previous step
                 currentConvMessages = keepMessagesUpToStep(currentConvMessages, idx - 1);
             }
-            await patchMessagesOnBackend();
-            await loadSandbox(currentConvId);
+            const success = await patchMessagesOnBackend();
+            if (success) {
+                await loadSandbox(currentConvId);
+            } else {
+                alert('Failed to delete step. Please try again.');
+                // Reload to restore the correct state
+                await loadSandbox(currentConvId);
+            }
         };
 
         let currentForkIdx = null;
@@ -1828,12 +1840,14 @@
         }
         async function patchMessagesOnBackend() {
             if (currentConvId) {
-                await fetch(`/sandboxes/${currentConvId}`, {
+                const res = await fetch(`/sandboxes/${currentConvId}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ messages: currentConvMessages })
                 });
+                return res.ok;
             }
+            return false;
         }
     </script>
 </body>
