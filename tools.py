@@ -39,7 +39,7 @@ def list_sandbox_files(sandbox_id: str, max_depth: int = None) -> List[str]:
         for file in files:
             file_path = os.path.join(root, file)
             rel_path = os.path.relpath(file_path, sandbox_path)
-            if '.git' in rel_path or rel_path.startswith('.git/') or rel_path == 'conversation.json':
+            if '.git' in rel_path or rel_path.startswith('.git/') or rel_path == 'conversation.json' or rel_path == '.context_cache':
                 continue
             if os.path.isfile(file_path):
                 output_files.append(rel_path)
@@ -275,7 +275,7 @@ def get_folder_structure_sandbox(sandbox_id: str, max_depth: int = 2) -> str:
         except PermissionError:
             return
 
-        entries = [e for e in entries if e != '.git']
+        entries = [e for e in entries if e != '.git' and e != '.context_cache' and e != 'conversation.json']
         
         for i, entry in enumerate(entries):
             is_last = (i == len(entries) - 1)
@@ -336,7 +336,7 @@ def search_content_sandbox(sandbox_id: str, query: str, case_sensitive: bool = F
             rel_path = os.path.relpath(file_path, sandbox_path)
             
             # Skip likely binary files or large files to prevent freezing
-            skip_exts = ['.pyc', '.git', '.png', '.jpg', '.jpeg', '.pdf', '.zip', '.exe']
+            skip_exts = ['.pyc', '.git', '.png', '.jpg', '.jpeg', '.pdf', '.zip', '.exe','conversation.json','.context_cache']
             if any(file.lower().endswith(ext) for ext in skip_exts):
                 continue
                 

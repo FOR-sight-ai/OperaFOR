@@ -44,7 +44,7 @@ def inject_sandbox_context(sandbox_id: str, openai_messages: list) -> list:
     file_list_str = "\n".join(files)
     context_msg = {
         "role": "system",
-        "content": f"📁 Current files in sandbox:\n{file_list_str}\n\nThese files are available for you to read and work with using the provided tools."
+        "content": f"📁 Current files in sandbox:\n{file_list_str}\n\nThese files have been imported and are available for you to read and work with using the provided tools."
     }
 
     # Insert after main system prompt (index 0)
