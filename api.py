@@ -152,6 +152,21 @@ async def api_delete_sandbox(conv_id: str, delete_folder: bool = True):
     return {"status": "deleted", "folder_deleted": delete_folder}
 
 
+@app.post("/sandboxes/{conv_id}/clean")
+async def api_clean_conversation(conv_id: str):
+    """Clean conversation messages but keep the sandbox and files intact."""
+    convs = load_all_sandboxes()
+    if conv_id not in convs:
+        return JSONResponse(status_code=404, content={"error": "Not found"})
+    conv = convs[conv_id]
+    # Clear messages and commits but keep everything else
+    conv["messages"] = []
+    conv["commits"] = []
+    convs[conv_id] = conv
+    save_all_sandboxes(convs)
+    return {"status": "cleaned", "conversation_id": conv_id}
+
+
 @app.patch("/sandboxes/{conv_id}")
 async def api_patch_sandbox(conv_id: str, request: Request):
     data = await request.json()
