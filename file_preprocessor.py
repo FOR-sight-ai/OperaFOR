@@ -5,7 +5,6 @@ import hashlib
 import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
-import subprocess
 
 from utils import get_sandbox_path
 
@@ -28,42 +27,74 @@ def get_file_hash(file_path: str) -> str:
 
 def check_git_diff(sandbox_path: str, file_path: str) -> bool:
     """
-    Check if a file has changed since last git commit.
+    Check if a file has changed since last git commit using dulwich.
 
     Returns:
         True if file has changed or is new, False if unchanged
     """
     try:
+        from dulwich.repo import Repo
+        from dulwich.errors import NotGitRepository
+
         # Check if git repo exists
-        git_dir = os.path.join(sandbox_path, '.git')
-        if not os.path.exists(git_dir):
+        try:
+            repo = Repo(sandbox_path)
+        except (NotGitRepository, FileNotFoundError):
             return True  # No git repo, treat as new
 
         # Get relative path from sandbox
         rel_path = os.path.relpath(file_path, sandbox_path)
+        # Convert to bytes for dulwich (uses bytes for paths)
+        rel_path_bytes = rel_path.encode('utf-8')
 
-        # Check if file is tracked
-        result = subprocess.run(
-            ['git', 'ls-files', '--error-unmatch', rel_path],
-            cwd=sandbox_path,
-            capture_output=True,
-            text=True
-        )
-
-        if result.returncode != 0:
+        # Check if file is tracked in the index
+        index = repo.open_index()
+        if rel_path_bytes not in index:
             # File is not tracked, it's new
             return True
 
         # Check if file has uncommitted changes
-        result = subprocess.run(
-            ['git', 'diff', '--quiet', 'HEAD', '--', rel_path],
-            cwd=sandbox_path,
-            capture_output=True
-        )
+        # Get HEAD tree
+        try:
+            head = repo[b'HEAD']
+            tree = repo[head.tree]
+        except KeyError:
+            # No HEAD commit yet (empty repo)
+            return True
 
-        # Return code 0 means no diff (unchanged)
-        # Return code 1 means there are changes
-        return result.returncode != 0
+        # Get the file content from HEAD
+        try:
+            # Navigate through tree structure to find the file
+            parts = rel_path.split(os.sep)
+            current_tree = tree
+
+            for i, part in enumerate(parts[:-1]):
+                # Navigate through directories
+                part_bytes = part.encode('utf-8')
+                mode, sha = current_tree[part_bytes]
+                current_tree = repo[sha]
+
+            # Get the file blob from the tree
+            filename_bytes = parts[-1].encode('utf-8')
+            mode, blob_sha = current_tree[filename_bytes]
+            blob = repo[blob_sha]
+            head_content = blob.data
+
+        except (KeyError, IndexError):
+            # File doesn't exist in HEAD, it's new
+            return True
+
+        # Compare with working tree file
+        try:
+            with open(file_path, 'rb') as f:
+                working_content = f.read()
+
+            # Compare content
+            return head_content != working_content
+
+        except Exception as e:
+            logger.error(f"Error reading working file {file_path}: {e}")
+            return True
 
     except Exception as e:
         logger.error(f"Error checking git diff for {file_path}: {e}")
