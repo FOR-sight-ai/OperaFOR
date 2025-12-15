@@ -405,6 +405,16 @@
             padding: 0.75rem;
             font-size: 0.9em;
             background: #fcfcfc;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+
+        .tool-call-body pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            max-width: 100%;
+            overflow-x: auto;
         }
 
         .tool-result {
@@ -1247,16 +1257,22 @@
 
                 const header = document.createElement('div');
                 header.className = 'thought-header';
-                header.innerHTML = '<span><i class="fas fa-brain mr-2"></i>Thought Process</span><i class="fas fa-chevron-down"></i>';
+                header.innerHTML = '<span><i class="fas fa-brain mr-2"></i>Thought Process</span><i class="fas fa-chevron-right"></i>';
                 header.onclick = function () {
                     const content = this.nextElementSibling;
                     content.classList.toggle('collapsed');
-                    this.querySelector('.fa-chevron-down').classList.toggle('fa-chevron-up');
-                    this.querySelector('.fa-chevron-down').classList.toggle('fa-chevron-down');
+                    const chevron = this.querySelector('.fas.fa-chevron-right, .fas.fa-chevron-down');
+                    if (content.classList.contains('collapsed')) {
+                        chevron.classList.remove('fa-chevron-down');
+                        chevron.classList.add('fa-chevron-right');
+                    } else {
+                        chevron.classList.remove('fa-chevron-right');
+                        chevron.classList.add('fa-chevron-down');
+                    }
                 };
 
                 const contentDiv = document.createElement('div');
-                contentDiv.className = 'thought-content'; // Default expanded
+                contentDiv.className = 'thought-content collapsed'; // Default collapsed
                 contentDiv.innerHTML = DOMPurify.sanitize(marked.parse(thoughtText));
 
                 thoughtDiv.appendChild(header);
@@ -1294,7 +1310,7 @@
 
                     const body = document.createElement('div');
                     body.className = 'tool-call-body';
-                    // body.style.display = 'none'; // Collapse by default? Optional.
+                    body.style.display = 'none'; // Collapse by default
 
                     const argsDiv = document.createElement('div');
                     argsDiv.innerHTML = `<strong>Args:</strong> <pre class="text-xs mt-1 bg-gray-100 p-2 rounded">${tc.function.arguments}</pre>`;
