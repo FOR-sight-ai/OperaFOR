@@ -1111,8 +1111,12 @@
                 tool_calls: [],
                 status: 'pending',
                 // Local temporary fields for streaming
-                _thoughts: '',
+                _thoughts: '', // Legacy support
+                _thoughtsList: [], // New: list of separate thoughts
+                _currentThought: null, // Currently streaming thought
                 _finalContent: '',
+                _systemMessages: [],
+                _tokenUsage: [],
                 _currentTool: null
             };
             currentConvMessages.push(tempAssistantMsg);
@@ -1241,12 +1245,22 @@
                 if (!msgObj._tokenUsage) msgObj._tokenUsage = [];
                 msgObj._tokenUsage.push(data);
             } else if (type === 'thought') {
-                msgObj._thoughts = (msgObj._thoughts || '') + data;
-                msgObj.content = (msgObj.content || '') + data;
+                // Support multiple thoughts across turns
+                if (!msgObj._thoughtsList) msgObj._thoughtsList = [];
+                if (!msgObj._currentThought) {
+                    msgObj._currentThought = data;
+                } else {
+                    msgObj._currentThought += data;
+                }
             } else if (type === 'content') {
+                // This is final content, separate from thoughts
                 msgObj._finalContent = (msgObj._finalContent || '') + data;
-                msgObj.content = (msgObj.content || '') + data;
             } else if (type === 'tool_call') {
+                // When we get a tool call, finalize the current thought
+                if (msgObj._currentThought) {
+                    msgObj._thoughtsList.push(msgObj._currentThought);
+                    msgObj._currentThought = null;
+                }
                 if (!msgObj.tool_calls) msgObj.tool_calls = [];
                 // Data is {name, arguments, id}
                 msgObj.tool_calls.push({
@@ -1311,36 +1325,54 @@
                 contentWrapper.appendChild(systemDiv);
             }
 
-            // 1. Thoughts (Content before tools usually)
-            const thoughtText = msg._thoughts;
+            // 1. Thoughts (Content before tools - can be multiple)
+            const thoughtsList = msg._thoughtsList || [];
+            const currentThought = msg._currentThought; // Ongoing thought being streamed
 
-            if (thoughtText) {
-                const thoughtDiv = document.createElement('div');
-                thoughtDiv.className = 'thought-process';
+            // Add current thought if streaming
+            const allThoughts = [...thoughtsList];
+            if (currentThought) {
+                allThoughts.push(currentThought);
+            }
 
-                const header = document.createElement('div');
-                header.className = 'thought-header';
-                header.innerHTML = '<span><i class="fas fa-brain mr-2"></i>Thought Process</span><i class="fas fa-chevron-right"></i>';
-                header.onclick = function () {
-                    const content = this.nextElementSibling;
-                    content.classList.toggle('collapsed');
-                    const chevron = this.querySelector('.fas.fa-chevron-right, .fas.fa-chevron-down');
-                    if (content.classList.contains('collapsed')) {
-                        chevron.classList.remove('fa-chevron-down');
-                        chevron.classList.add('fa-chevron-right');
-                    } else {
-                        chevron.classList.remove('fa-chevron-right');
-                        chevron.classList.add('fa-chevron-down');
-                    }
-                };
+            // Legacy support: if no _thoughtsList but has _thoughts, use that
+            if (allThoughts.length === 0 && msg._thoughts) {
+                allThoughts.push(msg._thoughts);
+            }
 
-                const contentDiv = document.createElement('div');
-                contentDiv.className = 'thought-content collapsed'; // Default collapsed
-                contentDiv.innerHTML = DOMPurify.sanitize(marked.parse(thoughtText));
+            if (allThoughts.length > 0) {
+                allThoughts.forEach((thoughtText, index) => {
+                    if (!thoughtText || !thoughtText.trim()) return;
 
-                thoughtDiv.appendChild(header);
-                thoughtDiv.appendChild(contentDiv);
-                contentWrapper.appendChild(thoughtDiv);
+                    const thoughtDiv = document.createElement('div');
+                    thoughtDiv.className = 'thought-process';
+                    thoughtDiv.style.cssText = 'margin-bottom: 12px;';
+
+                    const header = document.createElement('div');
+                    header.className = 'thought-header';
+                    const thoughtLabel = allThoughts.length > 1 ? `Thought Process ${index + 1}` : 'Thought Process';
+                    header.innerHTML = `<span><i class="fas fa-brain mr-2"></i>${thoughtLabel}</span><i class="fas fa-chevron-right"></i>`;
+                    header.onclick = function () {
+                        const content = this.nextElementSibling;
+                        content.classList.toggle('collapsed');
+                        const chevron = this.querySelector('.fas.fa-chevron-right, .fas.fa-chevron-down');
+                        if (content.classList.contains('collapsed')) {
+                            chevron.classList.remove('fa-chevron-down');
+                            chevron.classList.add('fa-chevron-right');
+                        } else {
+                            chevron.classList.remove('fa-chevron-right');
+                            chevron.classList.add('fa-chevron-down');
+                        }
+                    };
+
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'thought-content collapsed'; // Default collapsed
+                    contentDiv.innerHTML = DOMPurify.sanitize(marked.parse(thoughtText));
+
+                    thoughtDiv.appendChild(header);
+                    thoughtDiv.appendChild(contentDiv);
+                    contentWrapper.appendChild(thoughtDiv);
+                });
             }
 
             // 2. Tool Calls
@@ -1393,22 +1425,37 @@
                 contentWrapper.appendChild(toolsContainer);
             }
 
-            // 3. Final Content (if no tools, or text after tools)
+            // 3. Final Content (text after tools or standalone response)
             let finalContentToRender = msg._finalContent;
-            // Fallback: if no _finalContent AND no tools, assume legacy simple message
-            if (!finalContentToRender) {
-                if (!msg.tool_calls || msg.tool_calls.length === 0) {
-                    finalContentToRender = msg.content;
-                }
-            }
-            // Note: If tools exist and no _finalContent, we render NOTHING as final content.
-            // This is correct because the content was "Thoughts".
 
-            if (finalContentToRender) {
+            // Fallback: if no _finalContent AND no thoughts/tools, use msg.content (legacy messages)
+            if (!finalContentToRender && !allThoughts.length && (!msg.tool_calls || msg.tool_calls.length === 0)) {
+                finalContentToRender = msg.content;
+            }
+
+            if (finalContentToRender && finalContentToRender.trim()) {
+                const finalWrapper = document.createElement('div');
+                finalWrapper.style.cssText = 'margin-top: 12px;';
+
+                // Add a subtle separator if there were thoughts or tools above
+                if (allThoughts.length > 0 || (msg.tool_calls && msg.tool_calls.length > 0)) {
+                    const separator = document.createElement('div');
+                    separator.style.cssText = 'border-top: 2px solid #e5e7eb; margin: 16px 0; padding-top: 16px;';
+
+                    const label = document.createElement('div');
+                    label.style.cssText = 'font-weight: 600; color: #374151; margin-bottom: 8px; font-size: 0.875rem;';
+                    label.innerHTML = '<i class="fas fa-comment-dots mr-2"></i>Response';
+                    separator.appendChild(label);
+
+                    finalWrapper.appendChild(separator);
+                }
+
                 const finalDiv = document.createElement('div');
-                finalDiv.className = 'markdown-body';
+                finalDiv.className = 'markdown-body final-response';
                 finalDiv.innerHTML = DOMPurify.sanitize(marked.parse(finalContentToRender));
-                contentWrapper.appendChild(finalDiv);
+                finalWrapper.appendChild(finalDiv);
+
+                contentWrapper.appendChild(finalWrapper);
             }
 
             // Status Indicator with detailed state
@@ -1723,10 +1770,19 @@
                     if (currentStep) steps.push(currentStep);
                     currentStep = { prompt: msg.content, responses: [], statuses: [msg.status || 'done'] };
                 } else if (msg.role === 'assistant') {
-                    let summary = msg.content;
-                    /*if (msg._thoughts && (!summary || summary === msg._thoughts)) {
-                        summary = msg._thoughts;
-                    }*/
+                    // Prefer final content, fallback to content for legacy messages
+                    let summary = msg._finalContent || msg.content || '';
+
+                    // Add thoughts summary if available
+                    const thoughtsList = msg._thoughtsList || [];
+                    if (msg._currentThought) thoughtsList.push(msg._currentThought);
+                    if (thoughtsList.length === 0 && msg._thoughts) thoughtsList.push(msg._thoughts);
+
+                    if (thoughtsList.length > 0 && !summary) {
+                        // If no final content, show a summary of thoughts
+                        summary = thoughtsList[0].substring(0, 200) + (thoughtsList[0].length > 200 ? '...' : '');
+                    }
+
                     if (msg.tool_calls && msg.tool_calls.length > 0) {
                         summary = `<span class="text-xs font-mono bg-blue-50 text-blue-600 px-1 rounded mr-1 inline-block mb-1"><i class="fas fa-tools"></i> ${msg.tool_calls.length} tools</span> ` + (summary || '');
                     }
