@@ -1081,6 +1081,7 @@
 
         // Initialize markdown renderer with numbering for tool calls if needed
         let incompleteLine = '';
+        let currentAbortController = null;
 
         async function run(userInput) {
             // Si userInput n'est pas fourni, on prend la valeur du champ
@@ -1142,11 +1143,15 @@
             const payload = { sandbox_id: currentConvId };
             const convIdAtRequest = currentConvId;
 
+            // Create AbortController for cancellation
+            currentAbortController = new AbortController();
+
             try {
                 const res = await fetch("/agent", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify(payload),
+                    signal: currentAbortController.signal
                 });
 
                 if (!res.body) throw new Error('Pas de flux de réponse.');
@@ -1189,7 +1194,7 @@
                     // Ensure content reflects thoughts if separated, or just clean up
                     // Merge _thoughts into content if needed for persistence if we want strictly string content
                     // But we want to persist tools.
-                    // The backend adds tool_calls to history. 
+                    // The backend adds tool_calls to history.
                     // We should rely on backend for persistence, but here we update local state.
                     delete tempAssistantMsg._currentTool;
 
@@ -1202,10 +1207,24 @@
                 }
 
             } catch (e) {
-                tempAssistantMsg.status = 'error';
-                tempAssistantMsg.content += `\nError: ${e.message}`;
+                if (e.name === 'AbortError') {
+                    tempAssistantMsg.status = 'error';
+                    tempAssistantMsg.content += `\n[Agent execution cancelled by user]`;
+                } else {
+                    tempAssistantMsg.status = 'error';
+                    tempAssistantMsg.content += `\nError: ${e.message}`;
+                }
                 updateCurrentView();
-                await addMessageToSandbox(currentConvId, { role: 'assistant', content: `Error: ${e.message}`, status: 'error' });
+                await addMessageToSandbox(currentConvId, { role: 'assistant', content: tempAssistantMsg.content, status: 'error' });
+            } finally {
+                currentAbortController = null;
+            }
+        }
+
+        function cancelAgentRun() {
+            if (currentAbortController) {
+                currentAbortController.abort();
+                console.log('Agent execution cancelled');
             }
         }
 
@@ -1213,8 +1232,14 @@
             const type = event.type;
             const data = event.data;
 
-            if (type === 'status') {
-                // Ignore status updates in UI for now, or could show in a status bar
+            if (type === 'status' || type === 'system') {
+                // Display system status messages
+                if (!msgObj._systemMessages) msgObj._systemMessages = [];
+                msgObj._systemMessages.push(data);
+            } else if (type === 'usage') {
+                // Store token usage information
+                if (!msgObj._tokenUsage) msgObj._tokenUsage = [];
+                msgObj._tokenUsage.push(data);
             } else if (type === 'thought') {
                 msgObj._thoughts = (msgObj._thoughts || '') + data;
                 msgObj.content = (msgObj.content || '') + data;
@@ -1269,6 +1294,22 @@
             const contentWrapper = document.createElement('div');
             contentWrapper.className = 'assistant-message-content chat-bubble assistant';
             if (msg.status === 'error') contentWrapper.classList.add('error');
+
+            // 0. System Messages (context compression, etc.)
+            if (msg._systemMessages && msg._systemMessages.length > 0) {
+                const systemDiv = document.createElement('div');
+                systemDiv.className = 'system-messages';
+                systemDiv.style.cssText = 'background: #f0f9ff; border-left: 3px solid #0ea5e9; padding: 8px 12px; margin-bottom: 12px; border-radius: 4px; font-size: 0.875rem;';
+
+                msg._systemMessages.forEach(sysMsg => {
+                    const msgDiv = document.createElement('div');
+                    msgDiv.style.cssText = 'margin: 4px 0; color: #0369a1;';
+                    msgDiv.innerHTML = `<i class="fas fa-info-circle mr-2"></i>${DOMPurify.sanitize(sysMsg)}`;
+                    systemDiv.appendChild(msgDiv);
+                });
+
+                contentWrapper.appendChild(systemDiv);
+            }
 
             // 1. Thoughts (Content before tools usually)
             const thoughtText = msg._thoughts;
@@ -1370,13 +1411,71 @@
                 contentWrapper.appendChild(finalDiv);
             }
 
-            // Status Indicator
+            // Status Indicator with detailed state
             if (msg.status === 'pending') {
+                const statusContainer = document.createElement('div');
+                statusContainer.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-top: 8px;';
+
                 const statusDiv = document.createElement('div');
                 statusDiv.id = 'msg-status-indicator';
-                statusDiv.className = 'text-xs text-gray-500 mt-1';
-                statusDiv.innerHTML = '<i class="fas fa-spinner animate-spin mr-1"></i>Working...';
-                contentWrapper.appendChild(statusDiv);
+                statusDiv.className = 'text-xs text-gray-500';
+
+                // Determine detailed status based on message content
+                let statusText = 'Working...';
+                let statusIcon = 'fa-spinner animate-spin';
+
+                if (!msg._thoughts && !msg.tool_calls) {
+                    statusText = 'Thinking...';
+                    statusIcon = 'fa-brain animate-pulse';
+                } else if (msg.tool_calls && msg.tool_calls.length > 0) {
+                    const runningTools = msg.tool_calls.filter(tc => !tc.result);
+                    const completedTools = msg.tool_calls.filter(tc => tc.result);
+
+                    if (runningTools.length > 0) {
+                        statusText = `Executing tools... (${completedTools.length}/${msg.tool_calls.length} complete)`;
+                        statusIcon = 'fa-cog animate-spin';
+                    } else if (msg._thoughts && !msg._finalContent) {
+                        statusText = 'Processing results...';
+                        statusIcon = 'fa-spinner animate-spin';
+                    }
+                }
+
+                statusDiv.innerHTML = `<i class="fas ${statusIcon} mr-1"></i>${statusText}`;
+                statusContainer.appendChild(statusDiv);
+
+                // Add cancel button
+                const cancelButton = document.createElement('button');
+                cancelButton.className = 'text-xs text-red-500 hover:text-red-700';
+                cancelButton.style.cssText = 'background: none; border: 1px solid #ef4444; padding: 2px 8px; border-radius: 4px; cursor: pointer;';
+                cancelButton.innerHTML = '<i class="fas fa-times mr-1"></i>Cancel';
+                cancelButton.onclick = function(e) {
+                    e.stopPropagation();
+                    cancelAgentRun();
+                };
+                statusContainer.appendChild(cancelButton);
+
+                contentWrapper.appendChild(statusContainer);
+            }
+
+            // Token Usage Display
+            if (msg._tokenUsage && msg._tokenUsage.length > 0) {
+                const usageDiv = document.createElement('div');
+                usageDiv.className = 'token-usage text-xs text-gray-400 mt-2';
+                usageDiv.style.cssText = 'display: flex; gap: 12px; flex-wrap: wrap; padding: 4px 0;';
+
+                const totalUsage = msg._tokenUsage.reduce((acc, usage) => ({
+                    prompt_tokens: acc.prompt_tokens + usage.prompt_tokens,
+                    completion_tokens: acc.completion_tokens + usage.completion_tokens,
+                    total_tokens: acc.total_tokens + usage.total_tokens
+                }), { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+
+                usageDiv.innerHTML = `
+                    <span title="Total tokens used"><i class="fas fa-coins mr-1"></i>${totalUsage.total_tokens.toLocaleString()} tokens</span>
+                    <span title="Prompt tokens"><i class="fas fa-arrow-right mr-1"></i>${totalUsage.prompt_tokens.toLocaleString()}</span>
+                    <span title="Completion tokens"><i class="fas fa-arrow-left mr-1"></i>${totalUsage.completion_tokens.toLocaleString()}</span>
+                `;
+
+                contentWrapper.appendChild(usageDiv);
             }
 
             // Add copy button

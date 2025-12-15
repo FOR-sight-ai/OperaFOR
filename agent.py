@@ -276,14 +276,32 @@ async def runAgent(sandbox_id):
                     logger.error(f"Error during context compression: {e}")
                     # Continue with original messages on error
 
+            # Notify user that we're calling the LLM
+            yield json.dumps({
+                "type": "status",
+                "data": f"Calling LLM (turn {current_turn}/{max_turns})..."
+            }) + "\n"
+
             response_data = call_llm(openai_messages, current_tools, config)
-            
+
             if "error" in response_data:
                 yield json.dumps({"type": "error", "data": f"Error from LLM: {response_data['error']}"}) + "\n"
                 # Add to history as error
                 openai_messages.append({"role": "assistant", "content": f"Error from LLM: {response_data['error']}"})
                 break
-                
+
+            # Emit token usage if available
+            usage = response_data.get("usage", {})
+            if usage:
+                yield json.dumps({
+                    "type": "usage",
+                    "data": {
+                        "prompt_tokens": usage.get("prompt_tokens", 0),
+                        "completion_tokens": usage.get("completion_tokens", 0),
+                        "total_tokens": usage.get("total_tokens", 0)
+                    }
+                }) + "\n"
+
             choice = response_data.get("choices", [{}])[0]
             message = choice.get("message", {})
             content = message.get("content")
@@ -299,21 +317,27 @@ async def runAgent(sandbox_id):
                 yield json.dumps({"type": msg_type, "data": content}) + "\n"
                 
             if tool_calls:
+                # Emit status that we're about to execute tools
+                yield json.dumps({
+                    "type": "status",
+                    "data": f"Executing {len(tool_calls)} tool(s)..."
+                }) + "\n"
+
                 for tc in tool_calls:
                     func_name = tc["function"]["name"]
                     args_str = tc["function"]["arguments"]
                     call_id = tc["id"]
-                    
+
                     # Emit tool call event
                     yield json.dumps({
-                        "type": "tool_call", 
+                        "type": "tool_call",
                         "data": {
-                            "name": func_name, 
+                            "name": func_name,
                             "arguments": args_str,
                             "id": call_id
                         }
                     }) + "\n"
-                    
+
                     try:
                         args = json.loads(args_str)
                         args["sandbox_id"] = sandbox_id  # Inject sandbox_id
