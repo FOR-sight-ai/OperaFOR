@@ -22,3 +22,6 @@ dependencies = [
     "pymupdf",
     "beautifulsoup4",
 ]
+
+[tool.setuptools]
+py-modules = ["context_manager", "tools", "api", "file_preprocessor", "url_handler", "utils", "agent", "context_cache", "main"]
