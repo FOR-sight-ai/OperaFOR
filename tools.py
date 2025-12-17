@@ -3,6 +3,8 @@ import json
 import base64
 import difflib
 import re
+import hashlib
+import zipfile
 from typing import Any, Dict, List, Union
 from datetime import datetime
 
@@ -404,6 +406,143 @@ def get_file_info(sandbox_id: str, file_path: str) -> str:
         return f"Error getting file info: {e}"
 
 
+        return f"Error getting file info: {e}"
+
+
+def import_outlook_emails(sandbox_id: str, query: str = None, received_after: str = None) -> str:
+    """
+    Import emails from Outlook based on a grep-like query and optional time boundary.
+    Only works on Windows.
+    """
+    try:
+        import win32com.client
+    except ImportError:
+        return "Error: Outlook import tool is only available on Windows systems with pywin32 installed."
+
+    sandbox_path = get_sandbox_path(sandbox_id)
+    if not os.path.exists(sandbox_path):
+        return "Error: Sandbox directory does not exist."
+
+    processed_count = 0
+    saved_paths = []
+    
+    # Parse date if provided
+    filter_date = None
+    if received_after:
+        try:
+            # Parse YYYY-MM-DD
+            dt = datetime.strptime(received_after, "%Y-%m-%d")
+            # Make it timezone-aware (UTC) to compare with Outlook's timezone-aware datetimes
+            # Or simpler: remove timezone info from Outlook date for comparison
+            filter_date = dt
+        except ValueError:
+            return "Error: received_after must be in YYYY-MM-DD format."
+
+    try:
+        outlook = win32com.client.Dispatch('Outlook.Application').GetNamespace('MAPI')
+        
+        # Helper to recursively check folders
+        def process_folder(folder):
+            nonlocal processed_count
+            
+            # Recursive call for subfolders
+            for subfolder in folder.Folders:
+                process_folder(subfolder)
+
+            # Outlook items are not always sorted, checking all
+            # Optimization: could restrict folder types? For now, checking all.
+            for message in folder.Items:
+                try:
+                    # Filter by date first
+                    if filter_date:
+                        try:
+                            # message.ReceivedTime is a python datetime handled by pywin32
+                            # Ensure we can compare them. Usually naive comparison works if we strip tz or make both aware.
+                            # safest: strip tz from message time
+                            msg_time = message.ReceivedTime
+                            if msg_time.replace(tzinfo=None) < filter_date:
+                                continue
+                        except AttributeError:
+                            # Some items might not have ReceivedTime (e.g. drafts or diverse items)
+                            continue
+
+                    # Filter by query (grep-like regex)
+                    # Fields: Subject, Body, SenderName/SenderEmailAddress, To
+                    if query:
+                        subject = getattr(message, 'Subject', '') or ''
+                        body = getattr(message, 'Body', '') or ''
+                        to = getattr(message, 'To', '') or ''
+                        sender = ''
+                        try:
+                            sender = getattr(message, 'SenderName', '') or getattr(message, 'SenderEmailAddress', '')
+                        except:
+                            pass
+                        
+                        full_text = f"Subject: {subject}\nFrom: {sender}\nTo: {to}\n\n{body}"
+                        
+                        if not re.search(query, full_text, re.IGNORECASE | re.MULTILINE):
+                            continue
+
+                    # Generate unique ID
+                    try:
+                        unique_id = hashlib.sha256((getattr(message, 'Subject', '') + getattr(message, 'Body', '')).encode('utf-8', errors='ignore')).hexdigest()
+                    except Exception:
+                        continue 
+
+                    save_folder = os.path.join(sandbox_path, "memory", f"memory_{unique_id}")
+                    if os.path.exists(save_folder):
+                        continue
+
+                    os.makedirs(save_folder, exist_ok=True)
+
+                    # Save metadata/content
+                    meta = {
+                        "id": unique_id,
+                        "Subject": getattr(message, 'Subject', 'No Subject'),
+                        "Body": getattr(message, 'Body', ''),
+                        "ReceivedTime": str(getattr(message, 'ReceivedTime', '')),
+                        "Sender": getattr(message, 'SenderName', ''),
+                        "To": getattr(message, 'To', ''),
+                        "Memory": os.path.relpath(save_folder, sandbox_path)
+                    }
+                    
+                    with open(os.path.join(save_folder, "email_data.json"), 'w', encoding='utf-8') as f:
+                        json.dump(meta, f, indent=2)
+
+                    # Attachments
+                    if hasattr(message, 'Attachments'):
+                        for attachment in message.Attachments:
+                            try:
+                                file_path = os.path.join(save_folder, attachment.FileName)
+                                attachment.SaveAsFile(file_path)
+                                
+                                if attachment.FileName.lower().endswith('.zip'):
+                                    try:
+                                        with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                                            zip_ref.extractall(save_folder)
+                                    except Exception:
+                                        pass 
+                            except Exception:
+                                pass 
+
+                    processed_count += 1
+                    saved_paths.append(os.path.relpath(save_folder, sandbox_path))
+
+                except Exception:
+                    continue 
+
+        for account in outlook.Folders:
+            process_folder(account)
+            
+    except Exception as e:
+        return f"Error connecting to Outlook: {e}"
+
+    if processed_count == 0:
+        return "No new emails found matching criteria."
+    
+    return f"Imported {processed_count} emails. Saved to: {', '.join(saved_paths[:5])}..."
+
+
 # --- Tool Registry ---
 
 TOOL_DEFINITIONS = [
@@ -559,6 +698,27 @@ TOOL_DEFINITIONS = [
                 "required": ["file_path", "edits"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "import_outlook_emails",
+            "description": "Import emails from Outlook (Windows only) using a grep-like query and time boundary.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Regex pattern to search in Subject, Body, Sender, and To fields."
+                    },
+                    "received_after": {
+                        "type": "string",
+                        "description": "Optional: Filter emails received after this date (YYYY-MM-DD)."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
     }
 ]
 
@@ -595,6 +755,8 @@ def execute_tool(name: str, args: Dict[str, Any]) -> str:
                 args.get("dry_run", False), 
                 args.get("options")
             ))
+        elif name == "import_outlook_emails":
+            return str(import_outlook_emails(args.get("sandbox_id"), args.get("query"), args.get("received_after")))
         else:
             return f"Error: Tool {name} not found."
     except Exception as e:

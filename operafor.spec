@@ -10,12 +10,16 @@ block_cipher = None
 datas = [('index.html', '.')]
 # Removed metadata copies for removed libraries
 
+hidden_imports = ['aiohttp']
+if sys.platform == 'win32':
+    hidden_imports.extend(['win32com', 'win32com.client', 'pythoncom'])
+
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
     datas=datas,
-    hiddenimports=['aiohttp'], 
+    hiddenimports=hidden_imports, 
     hookspath=['hooks'],
     hooksconfig={},
     runtime_hooks=[],

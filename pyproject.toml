@@ -21,6 +21,7 @@ dependencies = [
     "requests",
     "pymupdf",
     "beautifulsoup4",
+    "pywin32; sys_platform == 'win32'",
 ]
 
 [tool.setuptools]
