@@ -51,9 +51,19 @@ def list_files(sandbox_id: str, max_depth: int = None) -> List[str]:
     return output_files
 
 
-def read_file(sandbox_id: str, file_name: str, model_name: str = None) -> str:
-    """Read a file from the sandbox directory."""
+def read_file(sandbox_id: str, file_name: str, model_name: str = None, start_line: int = 1, end_line: int = -1) -> str:
+    """
+    Read a file from the sandbox directory, optionally specifying a line range.
+    
+    Args:
+        sandbox_id: The sandbox ID
+        file_name: The name of the file
+        model_name: Optional model name for VLM logic
+        start_line: 1-indexed, inclusive (default 1)
+        end_line: 1-indexed, inclusive (default -1 for everything)
+    """
     from file_preprocessor import get_converted_file_path
+    import itertools
 
     sandbox_path = get_sandbox_path(sandbox_id)
     file_path = os.path.join(sandbox_path, file_name)
@@ -79,17 +89,48 @@ def read_file(sandbox_id: str, file_name: str, model_name: str = None) -> str:
                     if data.get("__type__") == "image":
                         return content
                 else:
-                    return content
+                    # For text content, we can respect line numbers if it's just a raw text dump
+                    # But if it's unstructured, slicing lines might be enough.
+                    lines = content.splitlines(keepends=True)
+                    
+                    # Convert 1-indexed start/end to 0-indexed slices
+                    start_idx = max(0, start_line - 1)
+                    if end_line == -1:
+                        target_lines = lines[start_idx:]
+                    else:
+                        target_lines = lines[start_idx:end_line]
+                    
+                    return "".join(target_lines)
+
             except Exception as e:
                 # Fall through to read original if converted file is corrupted
                 pass
-
+        
         # If no converted file, return error suggesting preprocessing should have happened
         return f"Error: PDF file {file_name} has not been preprocessed. Please ensure file preprocessing runs before agent loop."
 
     try:
-        with open(file_path, 'r') as f:
-            return f.read()
+        # Optimized reading for large files
+        if start_line == 1 and end_line == -1:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                return f.read()
+        else:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                # Use itertools.islice to efficiently skip to start_line
+                # islice(iterable, start, stop) -> start is inclusive, stop is exclusive (0-indexed)
+                # start_line is 1-indexed. so start=start_line-1
+                # end_line is 1-indexed inclusive. so stop=end_line
+                
+                start_idx = max(0, start_line - 1)
+                stop_idx = None if end_line == -1 else end_line
+                
+                # Careful with islice arguments: islice(f, start, stop)
+                # If start_idx is 0, islice(f, stop_idx) returns first stop_idx lines
+                # If start_idx > 0, islice(f, start_idx, stop_idx) 
+                
+                target_lines = itertools.islice(f, start_idx, stop_idx)
+                return "".join(target_lines)
+
     except Exception as e:
          return f"Error reading file: {e}"
 
@@ -648,11 +689,13 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read a file from the current working directory.",
+            "description": "Read a file from the current working directory. Use start_line/end_line for pagination.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "file_name": {"type": "string", "description": "The name of the file to read."}
+                    "file_name": {"type": "string", "description": "The name of the file to read."},
+                    "start_line": {"type": "integer", "description": "Line to start reading from (1-indexed).", "default": 1},
+                    "end_line": {"type": "integer", "description": "Line to stop reading at (1-indexed, inclusive). -1 for end of file.", "default": -1}
                 },
                 "required": ["file_name"]
             }
@@ -768,7 +811,13 @@ def execute_tool(name: str, args: Dict[str, Any]) -> str:
         elif name == "get_file_info":
              return str(get_file_info(args.get("sandbox_id"), args.get("file_path")))
         elif name == "read_file":
-            return str(read_file(args.get("sandbox_id"), args.get("file_name"), args.get("model_name")))
+            return str(read_file(
+                args.get("sandbox_id"), 
+                args.get("file_name"), 
+                args.get("model_name"),
+                args.get("start_line", 1),
+                args.get("end_line", -1)
+            ))
         elif name == "write_to_file":
             return str(write_to_file(args.get("sandbox_id"), args.get("file_name"), args.get("content")))
         elif name == "append_to_file":
