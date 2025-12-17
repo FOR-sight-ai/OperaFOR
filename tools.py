@@ -11,7 +11,7 @@ from utils import get_sandbox_path, is_vlm
 
 # --- Tool Functions ---
 
-def list_sandbox_files(sandbox_id: str, max_depth: int = None) -> List[str]:
+def list_files(sandbox_id: str, max_depth: int = None) -> List[str]:
     """
     List all files in the sandbox directory.
 
@@ -49,7 +49,7 @@ def list_sandbox_files(sandbox_id: str, max_depth: int = None) -> List[str]:
     return output_files
 
 
-def read_file_sandbox(sandbox_id: str, file_name: str, model_name: str = None) -> str:
+def read_file(sandbox_id: str, file_name: str, model_name: str = None) -> str:
     """Read a file from the sandbox directory."""
     from file_preprocessor import get_converted_file_path
 
@@ -92,7 +92,7 @@ def read_file_sandbox(sandbox_id: str, file_name: str, model_name: str = None) -
          return f"Error reading file: {e}"
 
 
-def save_file_sandbox(sandbox_id: str, file_name: str, content: str) -> str:
+def write_to_file(sandbox_id: str, file_name: str, content: str) -> str:
     """Write content to a file in the sandbox."""
     sandbox_path = get_sandbox_path(sandbox_id)
     file_path = os.path.join(sandbox_path, file_name)
@@ -105,7 +105,7 @@ def save_file_sandbox(sandbox_id: str, file_name: str, content: str) -> str:
         return f"Error saving file: {e}"
 
 
-def append_file_sandbox(sandbox_id: str, file_name: str, content: str) -> str:
+def append_to_file(sandbox_id: str, file_name: str, content: str) -> str:
     """Append content to a file in the sandbox."""
     sandbox_path = get_sandbox_path(sandbox_id)
     file_path = os.path.join(sandbox_path, file_name)
@@ -118,7 +118,7 @@ def append_file_sandbox(sandbox_id: str, file_name: str, content: str) -> str:
         return f"Error appending to file: {e}"
 
 
-def delete_this_file_sandbox(sandbox_id: str, file_name: str) -> str:
+def delete_file(sandbox_id: str, file_name: str) -> str:
     """Delete a file in the sandbox."""
     sandbox_path = get_sandbox_path(sandbox_id)
     file_path = os.path.join(sandbox_path, file_name)
@@ -131,7 +131,7 @@ def delete_this_file_sandbox(sandbox_id: str, file_name: str) -> str:
         return f"Error deleting file: {e}"
 
 
-def edit_file_sandbox(sandbox_id: str, file_path: str, edits: List[Dict[str, str]], dry_run: bool = False, options: Dict[str, Any] = None) -> Union[Dict[str, Any], str]:
+def edit_file(sandbox_id: str, file_path: str, edits: List[Dict[str, str]], dry_run: bool = False, options: Dict[str, Any] = None) -> Union[Dict[str, Any], str]:
     """Make selective edits to files while preserving formatting."""
     
     def normalize_line_endings(text: str) -> str:
@@ -258,7 +258,7 @@ def edit_file_sandbox(sandbox_id: str, file_path: str, edits: List[Dict[str, str
     return json.dumps({"success": True, "diff": diff})
 
 
-def get_folder_structure_sandbox(sandbox_id: str, max_depth: int = 2) -> str:
+def get_folder_structure(sandbox_id: str, max_depth: int = 2) -> str:
     """Returns a tree-like string representation of the folder structure."""
     sandbox_path = get_sandbox_path(sandbox_id)
     if not os.path.exists(sandbox_path):
@@ -294,7 +294,7 @@ def get_folder_structure_sandbox(sandbox_id: str, max_depth: int = 2) -> str:
     return "\n".join(output)
 
 
-def search_files_sandbox(sandbox_id: str, pattern: str) -> List[str]:
+def search_files(sandbox_id: str, pattern: str) -> List[str]:
     """Search for files in the sandbox matching a glob pattern."""
     import fnmatch
     sandbox_path = get_sandbox_path(sandbox_id)
@@ -319,7 +319,7 @@ def search_files_sandbox(sandbox_id: str, pattern: str) -> List[str]:
     return matches
 
 
-def search_content_sandbox(sandbox_id: str, query: str, case_sensitive: bool = False) -> str:
+def search_content(sandbox_id: str, query: str, case_sensitive: bool = False) -> str:
     """Search for text content within files."""
     sandbox_path = get_sandbox_path(sandbox_id)
     if not os.path.exists(sandbox_path):
@@ -371,7 +371,7 @@ def search_content_sandbox(sandbox_id: str, query: str, case_sensitive: bool = F
     return "\n".join(results)
 
 
-def get_file_info_sandbox(sandbox_id: str, file_path: str) -> str:
+def get_file_info(sandbox_id: str, file_path: str) -> str:
     """Get metadata about a specific file."""
     sandbox_path = get_sandbox_path(sandbox_id)
     full_path = os.path.join(sandbox_path, file_path)
@@ -410,149 +410,139 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "list_sandbox_files",
-            "description": "List all files in the sandbox directory.",
+            "name": "list_files",
+            "description": "List all files in the current working directory.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "sandbox_id": {"type": "string", "description": "The ID of the sandbox."}
                 },
-                "required": ["sandbox_id"]
+                "required": []
             }
         }
     },
     {
         "type": "function",
         "function": {
-            "name": "get_folder_structure_sandbox",
+            "name": "get_folder_structure",
             "description": "Get a tree-like representation of the folders.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "sandbox_id": {"type": "string", "description": "The ID of the sandbox."},
                     "max_depth": {"type": "integer", "description": "Max depth to traverse (default 2)."}
                 },
-                "required": ["sandbox_id"]
+                "required": []
             }
         }
     },
     {
         "type": "function",
         "function": {
-            "name": "search_files_sandbox",
+            "name": "search_files",
             "description": "Search for files matching a pattern (e.g. *.py).",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "sandbox_id": {"type": "string", "description": "The ID of the sandbox."},
                     "pattern": {"type": "string", "description": "Glob pattern to search for."}
                 },
-                "required": ["sandbox_id", "pattern"]
+                "required": ["pattern"]
             }
         }
     },
     {
         "type": "function",
         "function": {
-            "name": "search_content_sandbox",
+            "name": "search_content",
             "description": "Search for text content within files (grep-like).",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "sandbox_id": {"type": "string", "description": "The ID of the sandbox."},
                     "query": {"type": "string", "description": "Text to search for."},
                     "case_sensitive": {"type": "boolean", "description": "Case sensitive match."}
                 },
-                "required": ["sandbox_id", "query"]
+                "required": ["query"]
             }
         }
     },
     {
         "type": "function",
         "function": {
-            "name": "get_file_info_sandbox",
+            "name": "get_file_info",
             "description": "Get metadata (size, lines, time) for a file.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "sandbox_id": {"type": "string", "description": "The ID of the sandbox."},
                     "file_path": {"type": "string", "description": "Relative path to the file."}
                 },
-                "required": ["sandbox_id", "file_path"]
+                "required": ["file_path"]
             }
         }
     },
     {
         "type": "function",
         "function": {
-            "name": "read_file_sandbox",
-            "description": "Read a file from the sandbox directory.",
+            "name": "read_file",
+            "description": "Read a file from the current working directory.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "sandbox_id": {"type": "string", "description": "The ID of the sandbox."},
                     "file_name": {"type": "string", "description": "The name of the file to read."}
                 },
-                "required": ["sandbox_id", "file_name"]
+                "required": ["file_name"]
             }
         }
     },
     {
         "type": "function",
         "function": {
-            "name": "save_file_sandbox",
-            "description": "Write content to a file in the sandbox (overwrites).",
+            "name": "write_to_file",
+            "description": "Write content to a file (overwrites).",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "sandbox_id": {"type": "string", "description": "The ID of the sandbox."},
                     "file_name": {"type": "string", "description": "The name of the file to write to."},
                     "content": {"type": "string", "description": "Content to write."}
                 },
-                "required": ["sandbox_id", "file_name", "content"]
+                "required": ["file_name", "content"]
             }
         }
     },
     {
         "type": "function",
         "function": {
-            "name": "append_file_sandbox",
-            "description": "Append content to a file in the sandbox.",
+            "name": "append_to_file",
+            "description": "Append content to a file.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "sandbox_id": {"type": "string", "description": "The ID of the sandbox."},
                     "file_name": {"type": "string", "description": "The name of the file to append to."},
                     "content": {"type": "string", "description": "Content to append."}
                 },
-                "required": ["sandbox_id", "file_name", "content"]
+                "required": ["file_name", "content"]
             }
         }
     },
      {
         "type": "function",
         "function": {
-            "name": "delete_this_file_sandbox",
-            "description": "Delete a file in the sandbox.",
+            "name": "delete_file",
+            "description": "Delete a file.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "sandbox_id": {"type": "string", "description": "The ID of the sandbox."},
                     "file_name": {"type": "string", "description": "The name of the file to delete."}
                 },
-                "required": ["sandbox_id", "file_name"]
+                "required": ["file_name"]
             }
         }
     },
     {
         "type": "function",
         "function": {
-            "name": "edit_file_sandbox",
+            "name": "edit_file",
             "description": "Edit a file using search and replace blocks.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "sandbox_id": {"type": "string", "description": "The ID of the sandbox."},
                     "file_path": {"type": "string", "description": "Path to the file."},
                     "edits": {
                         "type": "array", 
@@ -566,7 +556,7 @@ TOOL_DEFINITIONS = [
                         }
                     }
                 },
-                "required": ["sandbox_id", "file_path", "edits"]
+                "required": ["file_path", "edits"]
             }
         }
     }
@@ -578,26 +568,27 @@ TOOL_DEFINITIONS = [
 def execute_tool(name: str, args: Dict[str, Any]) -> str:
     """Execute a tool by name with arguments."""
     try:
-        if name == "list_sandbox_files":
-            return str(list_sandbox_files(args.get("sandbox_id")))
-        elif name == "get_folder_structure_sandbox":
-            return str(get_folder_structure_sandbox(args.get("sandbox_id"), args.get("max_depth", 2)))
-        elif name == "search_files_sandbox":
-            return str(search_files_sandbox(args.get("sandbox_id"), args.get("pattern")))
-        elif name == "search_content_sandbox":
-             return str(search_content_sandbox(args.get("sandbox_id"), args.get("query"), args.get("case_sensitive", False)))
-        elif name == "get_file_info_sandbox":
-             return str(get_file_info_sandbox(args.get("sandbox_id"), args.get("file_path")))
-        elif name == "read_file_sandbox":
-            return str(read_file_sandbox(args.get("sandbox_id"), args.get("file_name"), args.get("model_name")))
-        elif name == "save_file_sandbox":
-            return str(save_file_sandbox(args.get("sandbox_id"), args.get("file_name"), args.get("content")))
-        elif name == "append_file_sandbox":
-            return str(append_file_sandbox(args.get("sandbox_id"), args.get("file_name"), args.get("content")))
-        elif name == "delete_this_file_sandbox":
-            return str(delete_this_file_sandbox(args.get("sandbox_id"), args.get("file_name")))
-        elif name == "edit_file_sandbox":
-            return str(edit_file_sandbox(
+        # sandbox_id is injected into args by agent.py
+        if name == "list_files":
+            return str(list_files(args.get("sandbox_id"), args.get("max_depth")))
+        elif name == "get_folder_structure":
+            return str(get_folder_structure(args.get("sandbox_id"), args.get("max_depth", 2)))
+        elif name == "search_files":
+            return str(search_files(args.get("sandbox_id"), args.get("pattern")))
+        elif name == "search_content":
+             return str(search_content(args.get("sandbox_id"), args.get("query"), args.get("case_sensitive", False)))
+        elif name == "get_file_info":
+             return str(get_file_info(args.get("sandbox_id"), args.get("file_path")))
+        elif name == "read_file":
+            return str(read_file(args.get("sandbox_id"), args.get("file_name"), args.get("model_name")))
+        elif name == "write_to_file":
+            return str(write_to_file(args.get("sandbox_id"), args.get("file_name"), args.get("content")))
+        elif name == "append_to_file":
+            return str(append_to_file(args.get("sandbox_id"), args.get("file_name"), args.get("content")))
+        elif name == "delete_file":
+            return str(delete_file(args.get("sandbox_id"), args.get("file_name")))
+        elif name == "edit_file":
+            return str(edit_file(
                 args.get("sandbox_id"), 
                 args.get("file_path"), 
                 args.get("edits"), 

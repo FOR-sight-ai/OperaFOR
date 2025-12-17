@@ -27,7 +27,7 @@ def inject_sandbox_context(sandbox_id: str, openai_messages: list) -> list:
     This allows the agent to know what files exist (including URL downloads)
     without consuming context with file contents.
     """
-    from tools import list_sandbox_files
+    from tools import list_files
     import os
 
     sandbox_path = get_sandbox_path(sandbox_id)
@@ -36,7 +36,7 @@ def inject_sandbox_context(sandbox_id: str, openai_messages: list) -> list:
 
     # Check if sandbox has any files
     # Use unlimited depth (None) to show all files including nested URL downloads
-    files = list_sandbox_files(sandbox_id, max_depth=None)
+    files = list_files(sandbox_id, max_depth=None)
     if not files or files == ["No files found in this sandbox."] or files == ["Sandbox directory does not exist yet."]:
         return openai_messages
 
@@ -201,7 +201,7 @@ async def runAgent(sandbox_id):
     current_tools = TOOL_DEFINITIONS
     if read_only:
         # Filter out writing tools
-        read_only_tool_names = ["list_sandbox_files", "read_file_sandbox", "get_folder_structure_sandbox", "search_files_sandbox", "search_content_sandbox", "get_file_info_sandbox"]
+        read_only_tool_names = ["list_files", "read_file", "get_folder_structure", "search_files", "search_content", "get_file_info"]
         current_tools = [t for t in TOOL_DEFINITIONS if t["function"]["name"] in read_only_tool_names]
         system_prompt = f"You are a coding assistant. You have access to a sandbox environment with ID {sandbox_id}. This sandbox is pending READ-ONLY mode. You can ONLY read files. You CANNOT write, edit, or delete files. Use the provided tools."
     else:
