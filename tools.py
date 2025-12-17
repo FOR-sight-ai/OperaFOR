@@ -428,15 +428,23 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
     
     # Parse date if provided
     filter_date = None
+    outlook_date_filter = ""
     if received_after:
         try:
             # Parse YYYY-MM-DD
             dt = datetime.strptime(received_after, "%Y-%m-%d")
-            # Make it timezone-aware (UTC) to compare with Outlook's timezone-aware datetimes
-            # Or simpler: remove timezone info from Outlook date for comparison
             filter_date = dt
+            # Outlook Restrict filter format: [ReceivedTime] >= 'MM/DD/YYYY 00:00 AM'
+            outlook_date_filter = f"[ReceivedTime] >= '{dt.strftime('%m/%d/%Y')} 00:00 AM'"
         except ValueError:
             return "Error: received_after must be in YYYY-MM-DD format."
+            
+    from file_preprocessor import convert_pdf_to_text
+
+    def sanitize_filename(name: str) -> str:
+        """Sanitize string for usage as filename."""
+        # Replace invalid chars with underscore
+        return re.sub(r'[<>:"/\\|?*]', '_', str(name)).strip()[:50]  # Limit length
 
     try:
         outlook = win32com.client.Dispatch('Outlook.Application').GetNamespace('MAPI')
@@ -449,9 +457,15 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
             for subfolder in folder.Folders:
                 process_folder(subfolder)
 
-            # Outlook items are not always sorted, checking all
-            # Optimization: could restrict folder types? For now, checking all.
-            for message in folder.Items:
+            # Access items, applying filter if present
+            items = folder.Items
+            if outlook_date_filter:
+                try:
+                    items = items.Restrict(outlook_date_filter)
+                except Exception:
+                    pass
+
+            for message in items:
                 try:
                     # Filter by date first
                     if filter_date:
@@ -489,7 +503,12 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
                     except Exception:
                         continue 
 
-                    save_folder = os.path.join(sandbox_path, "memory", f"memory_{unique_id}")
+                    # Correct Naming: Sender_Subject_ID
+                    sender_name = getattr(message, 'SenderName', 'Unknown')
+                    subject_text = getattr(message, 'Subject', 'No Subject')
+                    folder_name = f"{sanitize_filename(sender_name)}_{sanitize_filename(subject_text)}_{unique_id[:8]}"
+                    
+                    save_folder = os.path.join(sandbox_path, "mail", folder_name)
                     if os.path.exists(save_folder):
                         continue
 
@@ -498,12 +517,12 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
                     # Save metadata/content
                     meta = {
                         "id": unique_id,
-                        "Subject": getattr(message, 'Subject', 'No Subject'),
+                        "Subject": subject_text,
                         "Body": getattr(message, 'Body', ''),
                         "ReceivedTime": str(getattr(message, 'ReceivedTime', '')),
-                        "Sender": getattr(message, 'SenderName', ''),
+                        "Sender": sender_name,
                         "To": getattr(message, 'To', ''),
-                        "Memory": os.path.relpath(save_folder, sandbox_path)
+                        "FolderName": folder.Name
                     }
                     
                     with open(os.path.join(save_folder, "email_data.json"), 'w', encoding='utf-8') as f:
@@ -516,6 +535,15 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
                                 file_path = os.path.join(save_folder, attachment.FileName)
                                 attachment.SaveAsFile(file_path)
                                 
+                                if attachment.FileName.lower().endswith('.pdf'):
+                                    try:
+                                        content, format_type = convert_pdf_to_text(file_path)
+                                        ext = ".txt" if format_type == "text" else ".json"
+                                        with open(file_path + ext, 'w', encoding='utf-8') as f:
+                                            f.write(content)
+                                    except Exception:
+                                        pass
+
                                 if attachment.FileName.lower().endswith('.zip'):
                                     try:
                                         with zipfile.ZipFile(file_path, 'r') as zip_ref:
