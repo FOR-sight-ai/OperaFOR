@@ -57,7 +57,7 @@ def count_message_tokens(message: Dict[str, Any]) -> int:
 
     # Count tool calls
     if "tool_calls" in message:
-        for tc in message.get("tool_calls", []):
+        for tc in message.get("tool_calls") or []:
             tokens += estimate_tokens(json.dumps(tc))
 
     # Count tool results
@@ -226,7 +226,7 @@ def group_messages(messages: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]
             current_group = [msg]
             waiting_for_tools = True
             # Track which tool call IDs we're expecting results for
-            expected_tool_ids = {tc["id"] for tc in msg.get("tool_calls", [])}
+            expected_tool_ids = {tc["id"] for tc in msg.get("tool_calls") or []}
         elif role == "tool" and waiting_for_tools:
             # This tool message belongs to the current group
             current_group.append(msg)
@@ -273,7 +273,7 @@ def validate_message_structure(messages: List[Dict[str, Any]]) -> bool:
 
         if role == "assistant" and "tool_calls" in msg:
             # Add all tool_call_ids from this message
-            for tc in msg.get("tool_calls", []):
+            for tc in msg.get("tool_calls") or []:
                 available_tool_call_ids.add(tc["id"])
         elif role == "tool":
             # Check if this tool message has a valid parent
@@ -333,7 +333,7 @@ def summarize_messages_with_llm(
             content_preview = content[:100] if isinstance(content, str) else str(content)[:100]
             conversation_text.append(f"[Tool: {tool_name} returned {len(str(content))} chars]")
         elif role == "assistant" and "tool_calls" in msg:
-            tool_names = [tc["function"]["name"] for tc in msg.get("tool_calls", [])]
+            tool_names = [tc["function"]["name"] for tc in msg.get("tool_calls") or []]
             conversation_text.append(f"Assistant: [Called tools: {', '.join(tool_names)}]")
             if content:
                 conversation_text.append(f"  Thought: {content}")

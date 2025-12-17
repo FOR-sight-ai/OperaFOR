@@ -185,7 +185,7 @@ async def runAgent(sandbox_id):
              role = "user"  # default
         
         msg_obj = {"role": role, "content": content}
-        if "tool_calls" in m:
+        if "tool_calls" in m and m["tool_calls"]:
             msg_obj["tool_calls"] = m["tool_calls"]
         if "tool_call_id" in m:
             msg_obj["tool_call_id"] = m["tool_call_id"]
