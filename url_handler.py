@@ -9,7 +9,8 @@ from urllib.parse import urlparse, unquote, urljoin
 import requests
 from bs4 import BeautifulSoup
 
-from utils import get_sandbox_path
+import json
+from utils import get_sandbox_path, CONFIG_PATH, get_proxies, DEFAULT_CONFIG
 
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,18 @@ def download_web_url(url: str, sandbox_path: str, recursive: bool = False, max_d
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
-        response = requests.get(url, timeout=30, allow_redirects=True, headers=headers)
+        
+        # Load config to check for proxies
+        config = DEFAULT_CONFIG
+        if os.path.exists(CONFIG_PATH):
+            try:
+                with open(CONFIG_PATH, 'r') as f:
+                    config = json.load(f)
+            except Exception as e:
+                logger.error(f"Error loading config for proxy check: {e}")
+        
+        proxies = get_proxies(config, url)
+        response = requests.get(url, timeout=30, allow_redirects=True, headers=headers, proxies=proxies)
         response.raise_for_status()
 
         # Save to file

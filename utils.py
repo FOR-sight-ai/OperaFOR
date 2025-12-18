@@ -34,6 +34,11 @@ DEFAULT_CONFIG = {
         "model": "deepseek/deepseek-chat",
         "apiKey": "your_api_key"
     },
+    "proxy": {
+        "enabled": False,
+        "http": "",
+        "https": ""
+    },
     "context_management": {
         "enabled": True,
         "strategy": "hybrid",
@@ -46,6 +51,37 @@ DEFAULT_CONFIG = {
         "preserve_latest_tool_results": 1  # Number of latest tool results to preserve uncompressed
     }
 }
+
+
+def get_proxies(config: dict, url: str) -> dict:
+    """
+    Returns a proxy dictionary for requests if proxy is enabled and URL is not localhost.
+    
+    Args:
+        config: The application configuration dictionary
+        url: The URL to check for proxy application
+        
+    Returns:
+        A dictionary containing proxy settings or None if proxy should not be used
+    """
+    proxy_config = config.get("proxy", {})
+    if not proxy_config.get("enabled", False):
+        return None
+        
+    # Check for localhost
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if hostname in ["localhost", "127.0.0.1"]:
+        return None
+        
+    proxies = {}
+    if proxy_config.get("http"):
+        proxies["http"] = proxy_config["http"]
+    if proxy_config.get("https"):
+        proxies["https"] = proxy_config["https"]
+        
+    return proxies if proxies else None
 
 
 # --- Git utilities ---

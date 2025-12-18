@@ -8,7 +8,8 @@ from utils import (
     get_sandbox_path,
     commit_sandbox_changes,
     DEFAULT_CONFIG,
-    CONFIG_PATH
+    CONFIG_PATH,
+    get_proxies
 )
 from tools import TOOL_DEFINITIONS, execute_tool
 from context_manager import apply_context_strategy, count_messages_tokens
@@ -87,7 +88,8 @@ def call_llm(messages, tools, config):
     for attempt in range(max_retries):
         try:
             print(f"LLM Call Attempt {attempt+1}/{max_retries}...")
-            response = requests.post(endpoint, json=data, headers=headers, timeout=60)
+            proxies = get_proxies(config, endpoint)
+            response = requests.post(endpoint, json=data, headers=headers, timeout=60, proxies=proxies)
             
             if response.status_code == 400:
                 print(f"400 Bad Request Details: {response.text}")
