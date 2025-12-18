@@ -27,31 +27,37 @@ def extract_urls(text: str) -> Dict[str, List[str]]:
     file_urls = []
     
     # Pattern for web URLs (http/https)
-    web_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
+    # Note: excluding \s < > " { } | ^ ` [ ] but KEEPING \ for UNC/Windows compatibility in file URLs
+    web_pattern = r'https?://[^\s<>"{}|^`\[\]]+'
     web_matches = re.findall(web_pattern, text)
     web_urls.extend(web_matches)
     
     # Pattern for file:// URLs
-    file_url_pattern = r'file://[^\s<>"{}|\\^`\[\]]+'
+    file_url_pattern = r'file://[^\s<>"{}|^`\[\]]+'
     file_url_matches = re.findall(file_url_pattern, text)
     
     # Convert file:// URLs to paths
     for url in file_url_matches:
-        path = unquote(url.replace('file://', ''))
+        path = get_path_from_url(url)
         file_urls.append(path)
     
-    # Pattern for absolute paths (Unix and Windows)
+    # Pattern for absolute paths (Unix, Windows, and UNC)
     # Unix: /path/to/file
     # Windows: C:\path\to\file or C:/path/to/file
-    unix_path_pattern = r'(?:^|\s)(/[^\s<>"{}|\\^`\[\]]+)'
-    windows_path_pattern = r'(?:^|\s)([A-Za-z]:[/\\][^\s<>"{}|\\^`\[\]]*)'
+    # UNC: \\server\share\path
+    unix_path_pattern = r'(?:^|\s)(/[^\s<>"{}|^`\[\]]+)'
+    windows_path_pattern = r'(?:^|\s)([A-Za-z]:[/\\][^\s<>"{}|^`\[\]]*)'
+    unc_path_pattern = r'(?:^|\s)(\\\\[^\s<>"{}|^`\[\]]+)'
     
     unix_matches = re.findall(unix_path_pattern, text)
     windows_matches = re.findall(windows_path_pattern, text)
+    unc_matches = re.findall(unc_path_pattern, text)
     
     # Validate that these are actual file paths
-    for path in unix_matches + windows_matches:
-        path = path.strip()
+    # Combine all matches and filter duplicates
+    potential_paths = list(set([p.strip() for p in unix_matches + windows_matches + unc_matches]))
+    
+    for path in potential_paths:
         if os.path.exists(path):
             file_urls.append(path)
     
@@ -59,6 +65,44 @@ def extract_urls(text: str) -> Dict[str, List[str]]:
         'web_urls': list(set(web_urls)),  # Remove duplicates
         'file_urls': list(set(file_urls))
     }
+
+
+def get_path_from_url(url: str) -> str:
+    """
+    Convert a file:// URL to a local or network path.
+    Handles Windows drive letters and UNC paths.
+    """
+    if not url.startswith('file://'):
+        return url
+        
+    try:
+        parsed = urlparse(url)
+        # Handle netloc for UNC paths (file://server/share/path)
+        if parsed.netloc:
+            path_part = unquote(parsed.path)
+            if os.name == 'nt':
+                # On Windows, we want \\server\share\path
+                win_path = path_part.replace('/', '\\')
+                return f"\\\\{parsed.netloc}{win_path}"
+            else:
+                # On Unix-like, we keep it as //server/path
+                return f"//{parsed.netloc}{path_part}"
+        
+        # Local paths (file:///C:/path or file:///path)
+        path = unquote(parsed.path)
+        
+        if os.name == 'nt':
+            # Remove leading slash for drive letters: /C:/ -> C:/
+            # Note: parsed.path on Windows for file:///C:/ starts with /C:/
+            if path.startswith('/') and len(path) > 2 and path[2] == ':':
+                path = path[1:]
+            return path.replace('/', '\\')
+        
+        return path
+    except Exception as e:
+        logger.error(f"Error parsing file URL {url}: {e}")
+        # Fallback to simple replacement if urlparse fails
+        return unquote(url.replace('file://', ''))
 
 
 def extract_links_from_html(html_content: str, base_url: str) -> List[str]:
@@ -222,8 +266,19 @@ def copy_file_url(file_path: str, sandbox_path: str) -> str:
         if not os.path.exists(file_path):
             return f"Error: File not found: {file_path}"
         
+        # Normalize path to handle trailing slashes which cause empty basename
+        # and convert to absolute path just in case
+        normalized_path = os.path.abspath(file_path).rstrip(os.sep)
+        
         # Get the base name
-        base_name = os.path.basename(file_path)
+        base_name = os.path.basename(normalized_path)
+        
+        # If base_name is still empty (e.g., root directory), use a fallback name
+        if not base_name:
+            # For "C:\" -> "C_"
+            base_name = normalized_path.replace(':', '_').replace('\\', '_').replace('/', '_').strip('_')
+            if not base_name:
+                base_name = "root_import"
         
         # Create 'imported' subdirectory
         import_dir = os.path.join(sandbox_path, 'imported')
