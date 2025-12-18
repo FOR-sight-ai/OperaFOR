@@ -644,15 +644,32 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
         """Helper to save an Outlook message and its attachments."""
         nonlocal processed_count
         try:
-            # Generate unique ID based on subject and body
-            subj = getattr(message, 'Subject', '') or ''
+            # Filter for emails specifically if possible, but handle others
+            # olMail=43, olAppointment=26, olMeetingRequest=53
+            item_class = getattr(message, 'Class', 43)
+            
+            subj = getattr(message, 'Subject', 'No Subject') or 'No Subject'
             body = getattr(message, 'Body', '') or ''
-            unique_id = hashlib.sha256((subj + body).encode('utf-8', errors='ignore')).hexdigest()
+            html_body = getattr(message, 'HTMLBody', '') or ''
             
-            sender_name = getattr(message, 'SenderName', 'Unknown')
+            # Use EntryID if available for unique naming, fallback to hash
+            entry_id = getattr(message, 'EntryID', None)
+            if entry_id:
+                unique_id = hashlib.sha256(entry_id.encode('utf-8')).hexdigest()
+            else:
+                unique_id = hashlib.sha256((subj + body[:100]).encode('utf-8', errors='ignore')).hexdigest()
+            
+            sender_name = "Unknown"
+            try:
+                if item_class == 43: # MailItem
+                    sender_name = getattr(message, 'SenderName', '') or getattr(message, 'SenderEmailAddress', 'Unknown')
+                elif item_class == 26: # AppointmentItem
+                    sender_name = getattr(message, 'Organizer', 'Unknown')
+            except: pass
+
             folder_name = f"{sanitize_filename(sender_name)}_{sanitize_filename(subj)}_{unique_id[:8]}"
-            
             save_folder = os.path.join(sandbox_path, "mail", folder_name)
+            
             if os.path.exists(save_folder):
                 return None
 
@@ -660,12 +677,15 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
 
             meta = {
                 "id": unique_id,
+                "EntryID": entry_id,
                 "Subject": subj,
                 "Body": body,
+                "HTMLBody": html_body[:5000] if html_body else "", # Truncate HTML body for meta
                 "ReceivedTime": str(getattr(message, 'ReceivedTime', '')),
                 "Sender": sender_name,
                 "To": getattr(message, 'To', ''),
-                "FolderName": folder_name_source
+                "FolderName": folder_name_source,
+                "ItemClass": item_class
             }
             
             with open(os.path.join(save_folder, "email_data.json"), 'w', encoding='utf-8') as f:
@@ -707,82 +727,89 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
                 conn = win32com.client.Dispatch("ADODB.Connection")
                 conn.Open("Provider=Search.CollatorDSO;Extended Properties='Application=Windows';")
                 
-                # SQL-like query for Windows Search
+                # We fetch System.ItemUrl which contains the outlook:0000... protocol with EntryID
                 sql = f"""
-                    SELECT System.ItemUrl FROM SystemIndex 
+                    SELECT "System.ItemUrl" FROM SystemIndex 
                     WHERE System.Kind = 'email' 
                     AND CONTAINS(*, '"{query}"')
                 """
                 if received_after:
-                    sql += f" AND System.DateModified >= '{received_after}'"
+                    # Windows Search date format is YYYY/MM/DD
+                    sql += f" AND System.DateModified >= '{received_after.replace('-', '/')}'"
                 sql += " ORDER BY System.DateModified DESC"
                 
                 rs = conn.Execute(sql)[0]
                 while not rs.EOF:
-                    item_url = rs.Fields.Item(0).Value
+                    if processed_count >= 50: break
+                    item_url = rs.Fields.Item(0).Value # e.g. outlook:00000000...
                     try:
-                        # GetItemFromID is better if we had EntryID, but ItemUrl works with some namespaces
-                        # Or we try to bond back via EntryID if we selected it.
-                        # For simplicity in this tool, we use the URL to find the item or fallback.
-                        pass # ADODB is great for finding IF we can map back to Outlook Object
+                        # Extract entry ID from URL if it starts with outlook:
+                        if item_url.startswith("outlook:"):
+                            entry_id = item_url.split("outlook:")[1]
+                            message = namespace.GetItemFromID(entry_id)
+                            path = _save_outlook_message(message, "WindowsIndex")
+                            if path: saved_paths.append(path)
                     except: pass
                     rs.MoveNext()
                 rs.Close()
                 conn.Close()
             except Exception:
-                pass # Fallback to DASL
+                pass
 
         # 2. Strategy: DASL Filter (Outlook Native Search) - Medium Speed
-        # We search in Inbox (6) and Sent (5) by default for efficiency
-        targets = [namespace.GetDefaultFolder(6), namespace.GetDefaultFolder(5)]
-        
-        dasl_query = ""
-        if query:
-            dasl_query = (
-                f"@SQL=\"urn:schemas:httpmail:subject\" LIKE '%{query}%' OR "
-                f"\"urn:schemas:httpmail:textdescription\" LIKE '%{query}%' OR "
-                f"\"urn:schemas:httpmail:fromname\" LIKE '%{query}%'"
-            )
-        
-        # Add Date Filter to DASL
-        if received_after:
-            date_part = f"\"urn:schemas:httpmail:datereceived\" >= '{received_after} 00:00 AM'"
-            if dasl_query:
-                dasl_query = f"@SQL=({dasl_query.replace('@SQL=', '')}) AND {date_part}"
-            else:
-                dasl_query = f"@SQL={date_part}"
+        if processed_count < 10: # Only if ADODB didn't yield much
+            targets = [namespace.GetDefaultFolder(6), namespace.GetDefaultFolder(5)]
+            
+            dasl_query = ""
+            if query:
+                dasl_query = (
+                    f"@SQL=\"urn:schemas:httpmail:subject\" LIKE '%{query}%' OR "
+                    f"\"urn:schemas:httpmail:textdescription\" LIKE '%{query}%' OR "
+                    f"\"urn:schemas:httpmail:fromname\" LIKE '%{query}%'"
+                )
+            
+            if received_after:
+                try:
+                    dt_obj = datetime.strptime(received_after, "%Y-%m-%d")
+                    date_part = f"\"urn:schemas:httpmail:datereceived\" >= '{dt_obj.strftime('%m/%d/%Y')} 00:00 AM'"
+                    if dasl_query:
+                        dasl_query = f"@SQL=({dasl_query.replace('@SQL=', '')}) AND {date_part}"
+                    else:
+                        dasl_query = f"@SQL={date_part}"
+                except: pass
 
-        for folder in targets:
-            try:
-                items = folder.Items
-                if dasl_query:
-                    items = items.Restrict(dasl_query)
-                
-                items.Sort("[ReceivedTime]", True)
-                
-                count = 0
-                for message in items:
-                    if count >= 50: break # Safety limit per folder
-                    path = _save_outlook_message(message, folder.Name)
-                    if path:
-                        saved_paths.append(path)
-                        count += 1
-            except Exception:
-                continue
+            for folder in targets:
+                if processed_count >= 50: break
+                try:
+                    items = folder.Items
+                    if dasl_query:
+                        items = items.Restrict(dasl_query)
+                    items.Sort("[ReceivedTime]", True)
+                    
+                    for message in items:
+                        if processed_count >= 50: break
+                        path = _save_outlook_message(message, folder.Name)
+                        if path: saved_paths.append(path)
+                except Exception: continue
 
         # 3. Strategy: Full Recursive Fallback (Current) - Slowest
-        # Only if we found nothing and no error occurred
         if processed_count == 0:
             def process_folder_recursive(folder):
                 for sub in folder.Folders:
+                    if processed_count >= 50: return
                     process_folder_recursive(sub)
                 
                 items = folder.Items
-                if outlook_date_filter:
-                    try: items = items.Restrict(outlook_date_filter)
+                # Use crude restriction for dates if possible
+                if received_after:
+                    try:
+                        dt_obj = datetime.strptime(received_after, "%Y-%m-%d")
+                        local_filter = f"[ReceivedTime] >= '{dt_obj.strftime('%m/%d/%Y')} 00:00 AM'"
+                        items = items.Restrict(local_filter)
                     except: pass
                 
                 for msg in items:
+                    if processed_count >= 50: return
                     if query:
                         subj = getattr(msg, 'Subject', '') or ''
                         body = getattr(msg, 'Body', '') or ''
@@ -790,7 +817,6 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
                     
                     path = _save_outlook_message(msg, folder.Name)
                     if path: saved_paths.append(path)
-                    if processed_count >= 50: return
 
             for account in namespace.Folders:
                 if processed_count >= 50: break
