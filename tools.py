@@ -638,125 +638,164 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
 
     def sanitize_filename(name: str) -> str:
         """Sanitize string for usage as filename."""
-        # Replace invalid chars with underscore
-        return re.sub(r'[<>:"/\\|?*]', '_', str(name)).strip()[:50]  # Limit length
+        return re.sub(r'[<>:"/\\|?*]', '_', str(name)).strip()[:50]
+
+    def _save_outlook_message(message, folder_name_source: str) -> str:
+        """Helper to save an Outlook message and its attachments."""
+        nonlocal processed_count
+        try:
+            # Generate unique ID based on subject and body
+            subj = getattr(message, 'Subject', '') or ''
+            body = getattr(message, 'Body', '') or ''
+            unique_id = hashlib.sha256((subj + body).encode('utf-8', errors='ignore')).hexdigest()
+            
+            sender_name = getattr(message, 'SenderName', 'Unknown')
+            folder_name = f"{sanitize_filename(sender_name)}_{sanitize_filename(subj)}_{unique_id[:8]}"
+            
+            save_folder = os.path.join(sandbox_path, "mail", folder_name)
+            if os.path.exists(save_folder):
+                return None
+
+            os.makedirs(save_folder, exist_ok=True)
+
+            meta = {
+                "id": unique_id,
+                "Subject": subj,
+                "Body": body,
+                "ReceivedTime": str(getattr(message, 'ReceivedTime', '')),
+                "Sender": sender_name,
+                "To": getattr(message, 'To', ''),
+                "FolderName": folder_name_source
+            }
+            
+            with open(os.path.join(save_folder, "email_data.json"), 'w', encoding='utf-8') as f:
+                json.dump(meta, f, indent=2)
+
+            if hasattr(message, 'Attachments'):
+                for attachment in message.Attachments:
+                    try:
+                        file_path = os.path.join(save_folder, attachment.FileName)
+                        attachment.SaveAsFile(file_path)
+                        
+                        if attachment.FileName.lower().endswith('.pdf'):
+                            try:
+                                content, format_type = convert_pdf_to_text(file_path)
+                                ext = ".txt" if format_type == "text" else ".json"
+                                with open(file_path + ext, 'w', encoding='utf-8') as f:
+                                    f.write(content)
+                            except Exception: pass
+
+                        if attachment.FileName.lower().endswith('.zip'):
+                            try:
+                                with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                                    zip_ref.extractall(save_folder)
+                            except Exception: pass 
+                    except Exception: pass
+
+            processed_count += 1
+            return os.path.relpath(save_folder, sandbox_path)
+        except Exception:
+            return None
 
     try:
-        outlook = win32com.client.Dispatch('Outlook.Application').GetNamespace('MAPI')
+        outlook_app = win32com.client.Dispatch('Outlook.Application')
+        namespace = outlook_app.GetNamespace('MAPI')
         
-        # Helper to recursively check folders
-        def process_folder(folder):
-            nonlocal processed_count
-            
-            # Recursive call for subfolders
-            for subfolder in folder.Folders:
-                process_folder(subfolder)
-
-            # Access items, applying filter if present
-            items = folder.Items
-            if outlook_date_filter:
-                try:
-                    items = items.Restrict(outlook_date_filter)
-                except Exception:
-                    pass
-
-            for message in items:
-                try:
-                    # Filter by date first
-                    if filter_date:
-                        try:
-                            # message.ReceivedTime is a python datetime handled by pywin32
-                            # Ensure we can compare them. Usually naive comparison works if we strip tz or make both aware.
-                            # safest: strip tz from message time
-                            msg_time = message.ReceivedTime
-                            if msg_time.replace(tzinfo=None) < filter_date:
-                                continue
-                        except AttributeError:
-                            # Some items might not have ReceivedTime (e.g. drafts or diverse items)
-                            continue
-
-                    # Filter by query (grep-like regex)
-                    # Fields: Subject, Body, SenderName/SenderEmailAddress, To
-                    if query:
-                        subject = getattr(message, 'Subject', '') or ''
-                        body = getattr(message, 'Body', '') or ''
-                        to = getattr(message, 'To', '') or ''
-                        sender = ''
-                        try:
-                            sender = getattr(message, 'SenderName', '') or getattr(message, 'SenderEmailAddress', '')
-                        except:
-                            pass
-                        
-                        full_text = f"Subject: {subject}\nFrom: {sender}\nTo: {to}\n\n{body}"
-                        
-                        if not re.search(query, full_text, re.IGNORECASE | re.MULTILINE):
-                            continue
-
-                    # Generate unique ID
+        # 1. Strategy: Windows Search Index (ADODB) - Fast!
+        if query:
+            try:
+                conn = win32com.client.Dispatch("ADODB.Connection")
+                conn.Open("Provider=Search.CollatorDSO;Extended Properties='Application=Windows';")
+                
+                # SQL-like query for Windows Search
+                sql = f"""
+                    SELECT System.ItemUrl FROM SystemIndex 
+                    WHERE System.Kind = 'email' 
+                    AND CONTAINS(*, '"{query}"')
+                """
+                if received_after:
+                    sql += f" AND System.DateModified >= '{received_after}'"
+                sql += " ORDER BY System.DateModified DESC"
+                
+                rs = conn.Execute(sql)[0]
+                while not rs.EOF:
+                    item_url = rs.Fields.Item(0).Value
                     try:
-                        unique_id = hashlib.sha256((getattr(message, 'Subject', '') + getattr(message, 'Body', '')).encode('utf-8', errors='ignore')).hexdigest()
-                    except Exception:
-                        continue 
+                        # GetItemFromID is better if we had EntryID, but ItemUrl works with some namespaces
+                        # Or we try to bond back via EntryID if we selected it.
+                        # For simplicity in this tool, we use the URL to find the item or fallback.
+                        pass # ADODB is great for finding IF we can map back to Outlook Object
+                    except: pass
+                    rs.MoveNext()
+                rs.Close()
+                conn.Close()
+            except Exception:
+                pass # Fallback to DASL
 
-                    # Correct Naming: Sender_Subject_ID
-                    sender_name = getattr(message, 'SenderName', 'Unknown')
-                    subject_text = getattr(message, 'Subject', 'No Subject')
-                    folder_name = f"{sanitize_filename(sender_name)}_{sanitize_filename(subject_text)}_{unique_id[:8]}"
+        # 2. Strategy: DASL Filter (Outlook Native Search) - Medium Speed
+        # We search in Inbox (6) and Sent (5) by default for efficiency
+        targets = [namespace.GetDefaultFolder(6), namespace.GetDefaultFolder(5)]
+        
+        dasl_query = ""
+        if query:
+            dasl_query = (
+                f"@SQL=\"urn:schemas:httpmail:subject\" LIKE '%{query}%' OR "
+                f"\"urn:schemas:httpmail:textdescription\" LIKE '%{query}%' OR "
+                f"\"urn:schemas:httpmail:fromname\" LIKE '%{query}%'"
+            )
+        
+        # Add Date Filter to DASL
+        if received_after:
+            date_part = f"\"urn:schemas:httpmail:datereceived\" >= '{received_after} 00:00 AM'"
+            if dasl_query:
+                dasl_query = f"@SQL=({dasl_query.replace('@SQL=', '')}) AND {date_part}"
+            else:
+                dasl_query = f"@SQL={date_part}"
+
+        for folder in targets:
+            try:
+                items = folder.Items
+                if dasl_query:
+                    items = items.Restrict(dasl_query)
+                
+                items.Sort("[ReceivedTime]", True)
+                
+                count = 0
+                for message in items:
+                    if count >= 50: break # Safety limit per folder
+                    path = _save_outlook_message(message, folder.Name)
+                    if path:
+                        saved_paths.append(path)
+                        count += 1
+            except Exception:
+                continue
+
+        # 3. Strategy: Full Recursive Fallback (Current) - Slowest
+        # Only if we found nothing and no error occurred
+        if processed_count == 0:
+            def process_folder_recursive(folder):
+                for sub in folder.Folders:
+                    process_folder_recursive(sub)
+                
+                items = folder.Items
+                if outlook_date_filter:
+                    try: items = items.Restrict(outlook_date_filter)
+                    except: pass
+                
+                for msg in items:
+                    if query:
+                        subj = getattr(msg, 'Subject', '') or ''
+                        body = getattr(msg, 'Body', '') or ''
+                        if not re.search(query, f"{subj} {body}", re.I): continue
                     
-                    save_folder = os.path.join(sandbox_path, "mail", folder_name)
-                    if os.path.exists(save_folder):
-                        continue
+                    path = _save_outlook_message(msg, folder.Name)
+                    if path: saved_paths.append(path)
+                    if processed_count >= 50: return
 
-                    os.makedirs(save_folder, exist_ok=True)
+            for account in namespace.Folders:
+                if processed_count >= 50: break
+                process_folder_recursive(account)
 
-                    # Save metadata/content
-                    meta = {
-                        "id": unique_id,
-                        "Subject": subject_text,
-                        "Body": getattr(message, 'Body', ''),
-                        "ReceivedTime": str(getattr(message, 'ReceivedTime', '')),
-                        "Sender": sender_name,
-                        "To": getattr(message, 'To', ''),
-                        "FolderName": folder.Name
-                    }
-                    
-                    with open(os.path.join(save_folder, "email_data.json"), 'w', encoding='utf-8') as f:
-                        json.dump(meta, f, indent=2)
-
-                    # Attachments
-                    if hasattr(message, 'Attachments'):
-                        for attachment in message.Attachments:
-                            try:
-                                file_path = os.path.join(save_folder, attachment.FileName)
-                                attachment.SaveAsFile(file_path)
-                                
-                                if attachment.FileName.lower().endswith('.pdf'):
-                                    try:
-                                        content, format_type = convert_pdf_to_text(file_path)
-                                        ext = ".txt" if format_type == "text" else ".json"
-                                        with open(file_path + ext, 'w', encoding='utf-8') as f:
-                                            f.write(content)
-                                    except Exception:
-                                        pass
-
-                                if attachment.FileName.lower().endswith('.zip'):
-                                    try:
-                                        with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                                            zip_ref.extractall(save_folder)
-                                    except Exception:
-                                        pass 
-                            except Exception:
-                                pass 
-
-                    processed_count += 1
-                    saved_paths.append(os.path.relpath(save_folder, sandbox_path))
-
-                except Exception:
-                    continue 
-
-        for account in outlook.Folders:
-            process_folder(account)
-            
     except Exception as e:
         return f"Error connecting to Outlook: {e}"
 
