@@ -21,6 +21,8 @@ dependencies = [
     "requests",
     "pymupdf",
     "beautifulsoup4",
+    "python-docx",
+    "python-pptx",
     "pywin32; sys_platform == 'win32'",
 ]
 

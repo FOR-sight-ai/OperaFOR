@@ -5,8 +5,19 @@ import difflib
 import re
 import hashlib
 import zipfile
+import io
 from typing import Any, Dict, List, Union
 from datetime import datetime
+
+try:
+    import docx
+except ImportError:
+    docx = None
+
+try:
+    from pptx import Presentation
+except ImportError:
+    Presentation = None
 
 from utils import get_sandbox_path, is_vlm
 
@@ -109,6 +120,39 @@ def read_file(sandbox_id: str, file_name: str, model_name: str = None, start_lin
         # If no converted file, return error suggesting preprocessing should have happened
         return f"Error: PDF file {file_name} has not been preprocessed. Please ensure file preprocessing runs before agent loop."
 
+    # DOCX Support
+    if file_name.lower().endswith(".docx"):
+        if not docx:
+            return "Error: python-docx library not available."
+        try:
+            doc = docx.Document(file_path)
+            content = "\n".join([para.text for para in doc.paragraphs])
+            lines = content.splitlines(keepends=True)
+            start_idx = max(0, start_line - 1)
+            stop_idx = None if end_line == -1 else end_line
+            return "".join(lines[start_idx:stop_idx])
+        except Exception as e:
+            return f"Error reading DOCX: {e}"
+
+    # PPTX Support
+    if file_name.lower().endswith(".pptx"):
+        if not Presentation:
+            return "Error: python-pptx library not available."
+        try:
+            prs = Presentation(file_path)
+            text_runs = []
+            for slide in prs.slides:
+                for shape in slide.shapes:
+                    if hasattr(shape, "text"):
+                        text_runs.append(shape.text)
+            content = "\n".join(text_runs)
+            lines = content.splitlines(keepends=True)
+            start_idx = max(0, start_line - 1)
+            stop_idx = None if end_line == -1 else end_line
+            return "".join(lines[start_idx:stop_idx])
+        except Exception as e:
+            return f"Error reading PPTX: {e}"
+
     try:
         # Optimized reading for large files
         if start_line == 1 and end_line == -1:
@@ -141,6 +185,37 @@ def write_to_file(sandbox_id: str, file_name: str, content: str) -> str:
     file_path = os.path.join(sandbox_path, file_name)
     try:
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+        # DOCX Support
+        if file_name.lower().endswith(".docx"):
+            if not docx:
+                return "Error: python-docx library not available."
+            doc = docx.Document()
+            for line in content.splitlines():
+                doc.add_paragraph(line)
+            doc.save(file_path)
+            return f"File {file_name} saved successfully as DOCX."
+
+        # PPTX Support
+        if file_name.lower().endswith(".pptx"):
+            if not Presentation:
+                return "Error: python-pptx library not available."
+            prs = Presentation()
+            blank_slide_layout = prs.slide_layouts[6]
+            slide = prs.slides.add_slide(blank_slide_layout)
+            
+            # Simple text box for content
+            from pptx.util import Inches
+            left = top = Inches(1)
+            width = Inches(8)
+            height = Inches(5)
+            txBox = slide.shapes.add_textbox(left, top, width, height)
+            tf = txBox.text_frame
+            tf.text = content
+            
+            prs.save(file_path)
+            return f"File {file_name} saved successfully as PPTX."
+
         with open(file_path, 'w') as f:
             f.write(content)
         return f"File {file_name} saved successfully."
@@ -154,6 +229,42 @@ def append_to_file(sandbox_id: str, file_name: str, content: str) -> str:
     file_path = os.path.join(sandbox_path, file_name)
     try:
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+        # DOCX Support
+        if file_name.lower().endswith(".docx"):
+            if not docx:
+                return "Error: python-docx library not available."
+            if os.path.exists(file_path):
+                doc = docx.Document(file_path)
+            else:
+                doc = docx.Document()
+            for line in content.splitlines():
+                doc.add_paragraph(line)
+            doc.save(file_path)
+            return f"Content appended to {file_name} (DOCX)."
+
+        # PPTX Support
+        if file_name.lower().endswith(".pptx"):
+            if not Presentation:
+                return "Error: python-pptx library not available."
+            if os.path.exists(file_path):
+                prs = Presentation(file_path)
+            else:
+                prs = Presentation()
+            blank_slide_layout = prs.slide_layouts[6]
+            slide = prs.slides.add_slide(blank_slide_layout)
+            
+            from pptx.util import Inches
+            left = top = Inches(1)
+            width = Inches(8)
+            height = Inches(5)
+            txBox = slide.shapes.add_textbox(left, top, width, height)
+            tf = txBox.text_frame
+            tf.text = content
+            
+            prs.save(file_path)
+            return f"Content appended to {file_name} (PPTX)."
+
         with open(file_path, 'a') as f:
             f.write(content)
         return f"Content appended to {file_name}."
@@ -262,8 +373,24 @@ def edit_file(sandbox_id: str, file_path: str, edits: List[Dict[str, str]], dry_
     normalize_ws = options.get("normalize_whitespace", True) if options else True
 
     try:
-        with open(full_file_path, "r", encoding="utf-8") as f:
-            original_content = f.read()
+        if file_path.lower().endswith(".docx"):
+            if not docx:
+                return json.dumps({"success": False, "error": "python-docx library not available."})
+            doc = docx.Document(full_file_path)
+            original_content = "\n".join([para.text for para in doc.paragraphs])
+        elif file_path.lower().endswith(".pptx"):
+            if not Presentation:
+                return json.dumps({"success": False, "error": "python-pptx library not available."})
+            prs = Presentation(full_file_path)
+            text_runs = []
+            for slide in prs.slides:
+                for shape in slide.shapes:
+                    if hasattr(shape, "text"):
+                        text_runs.append(shape.text)
+            original_content = "\n".join(text_runs)
+        else:
+            with open(full_file_path, "r", encoding="utf-8") as f:
+                original_content = f.read()
     except Exception as e:
         return json.dumps({"success": False, "error": f"Error reading file: {str(e)}"})
 
@@ -276,7 +403,7 @@ def edit_file(sandbox_id: str, file_path: str, edits: List[Dict[str, str]], dry_
         new = normalize_line_endings(edit["new_text"])
         
         if normalize_ws:
-            old_search = normalize_whitespace(old)
+            # Simple exact match for now, as existing code does
             pass 
 
         if old in modified_content:
@@ -293,8 +420,22 @@ def edit_file(sandbox_id: str, file_path: str, edits: List[Dict[str, str]], dry_
     
     if not dry_run:
         try:
-            with open(full_file_path, "w", encoding="utf-8") as f:
-                f.write(modified_content)
+            if file_path.lower().endswith(".docx"):
+                doc = docx.Document()
+                for line in modified_content.splitlines():
+                    doc.add_paragraph(line)
+                doc.save(full_file_path)
+            elif file_path.lower().endswith(".pptx"):
+                prs = Presentation()
+                blank_slide_layout = prs.slide_layouts[6]
+                slide = prs.slides.add_slide(blank_slide_layout)
+                from pptx.util import Inches
+                txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(5))
+                txBox.text_frame.text = modified_content
+                prs.save(full_file_path)
+            else:
+                with open(full_file_path, "w", encoding="utf-8") as f:
+                    f.write(modified_content)
         except Exception as e:
              return json.dumps({"success": False, "error": f"Error writing file: {str(e)}"})
 
@@ -384,8 +525,21 @@ def search_content(sandbox_id: str, query: str, case_sensitive: bool = False) ->
                 continue
                 
             try:
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    lines = f.readlines()
+                if file.lower().endswith(".docx"):
+                    if not docx: continue
+                    doc = docx.Document(file_path)
+                    lines = [para.text for para in doc.paragraphs]
+                elif file.lower().endswith(".pptx"):
+                    if not Presentation: continue
+                    prs = Presentation(file_path)
+                    lines = []
+                    for slide in prs.slides:
+                        for shape in slide.shapes:
+                            if hasattr(shape, "text"):
+                                lines.append(shape.text)
+                else:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        lines = f.readlines()
                     
                 for i, line in enumerate(lines):
                     if case_sensitive:
