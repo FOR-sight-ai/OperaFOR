@@ -1,13 +1,8 @@
-import os
-import json
-import base64
-import difflib
-import re
-import hashlib
-import zipfile
-import io
+import logging
 from typing import Any, Dict, List, Union
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 try:
     import docx
@@ -609,13 +604,16 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
     Import emails from Outlook based on a grep-like query and optional time boundary.
     Only works on Windows.
     """
+    logger.info(f"Starting import_outlook_emails: query='{query}', received_after='{received_after}'")
     try:
         import win32com.client
     except ImportError:
+        logger.error("pywin32 not installed, Outlook import unavailable.")
         return "Error: Outlook import tool is only available on Windows systems with pywin32 installed."
 
     sandbox_path = get_sandbox_path(sandbox_id)
     if not os.path.exists(sandbox_path):
+        logger.error(f"Sandbox path does not exist: {sandbox_path}")
         return "Error: Sandbox directory does not exist."
 
     processed_count = 0
@@ -631,7 +629,9 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
             filter_date = dt
             # Outlook Restrict filter format: [ReceivedTime] >= 'MM/DD/YYYY 00:00 AM'
             outlook_date_filter = f"[ReceivedTime] >= '{dt.strftime('%m/%d/%Y')} 00:00 AM'"
+            logger.info(f"Using date filter: {outlook_date_filter}")
         except ValueError:
+            logger.warning(f"Invalid date format: {received_after}")
             return "Error: received_after must be in YYYY-MM-DD format."
             
     from file_preprocessor import convert_pdf_to_text
@@ -643,6 +643,7 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
     def _save_outlook_message(message, folder_name_source: str) -> str:
         """Helper to save an Outlook message and its attachments."""
         nonlocal processed_count
+        save_folder = None
         try:
             # Filter for emails specifically if possible, but handle others
             # olMail=43, olAppointment=26, olMeetingRequest=53
@@ -665,14 +666,17 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
                     sender_name = getattr(message, 'SenderName', '') or getattr(message, 'SenderEmailAddress', 'Unknown')
                 elif item_class == 26: # AppointmentItem
                     sender_name = getattr(message, 'Organizer', 'Unknown')
-            except: pass
+            except Exception as e:
+                logger.debug(f"Could not get sender name: {e}")
 
             folder_name = f"{sanitize_filename(sender_name)}_{sanitize_filename(subj)}_{unique_id[:8]}"
             save_folder = os.path.join(sandbox_path, "mail", folder_name)
             
             if os.path.exists(save_folder):
+                logger.debug(f"Email folder already exists, skipping: {folder_name}")
                 return None
 
+            logger.info(f"Saving email: {subj} from {sender_name}")
             os.makedirs(save_folder, exist_ok=True)
 
             meta = {
@@ -681,48 +685,66 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
                 "Subject": subj,
                 "Body": body,
                 "HTMLBody": html_body[:5000] if html_body else "", # Truncate HTML body for meta
-                "ReceivedTime": str(getattr(message, 'ReceivedTime', '')),
+                "ReceivedTime": str(getattr(message, 'ReceivedTime', 'Unknown')),
                 "Sender": sender_name,
                 "To": getattr(message, 'To', ''),
                 "FolderName": folder_name_source,
                 "ItemClass": item_class
             }
             
-            with open(os.path.join(save_folder, "email_data.json"), 'w', encoding='utf-8') as f:
+            data_file = os.path.join(save_folder, "email_data.json")
+            with open(data_file, 'w', encoding='utf-8') as f:
                 json.dump(meta, f, indent=2)
+            logger.debug(f"Saved email metadata to {data_file}")
 
             if hasattr(message, 'Attachments'):
-                for attachment in message.Attachments:
+                for i, attachment in enumerate(message.Attachments):
                     try:
-                        file_path = os.path.join(save_folder, attachment.FileName)
+                        att_name = getattr(attachment, 'FileName', f'attachment_{i}')
+                        file_path = os.path.join(save_folder, att_name)
                         attachment.SaveAsFile(file_path)
+                        logger.debug(f"Saved attachment: {att_name}")
                         
-                        if attachment.FileName.lower().endswith('.pdf'):
+                        if att_name.lower().endswith('.pdf'):
                             try:
+                                logger.debug(f"Converting PDF attachment to text: {att_name}")
                                 content, format_type = convert_pdf_to_text(file_path)
                                 ext = ".txt" if format_type == "text" else ".json"
                                 with open(file_path + ext, 'w', encoding='utf-8') as f:
                                     f.write(content)
-                            except Exception: pass
+                            except Exception as pdf_e:
+                                logger.warning(f"Failed to convert PDF {att_name}: {pdf_e}")
 
-                        if attachment.FileName.lower().endswith('.zip'):
+                        if att_name.lower().endswith('.zip'):
                             try:
+                                logger.debug(f"Extracting ZIP attachment: {att_name}")
                                 with zipfile.ZipFile(file_path, 'r') as zip_ref:
                                     zip_ref.extractall(save_folder)
-                            except Exception: pass 
-                    except Exception: pass
+                            except Exception as zip_e:
+                                logger.warning(f"Failed to extract ZIP {att_name}: {zip_e}")
+                    except Exception as att_e:
+                        logger.warning(f"Error processing attachment {i}: {att_e}")
 
             processed_count += 1
             return os.path.relpath(save_folder, sandbox_path)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error saving outlook message '{getattr(message, 'Subject', 'Unknown')}': {e}", exc_info=True)
+            # Cleanup empty folder if we failed early
+            if save_folder and os.path.exists(save_folder) and not os.listdir(save_folder):
+                try:
+                    os.rmdir(save_folder)
+                    logger.debug(f"Cleaned up empty folder: {save_folder}")
+                except: pass
             return None
 
     try:
+        logger.info("Connecting to Outlook.Application...")
         outlook_app = win32com.client.Dispatch('Outlook.Application')
         namespace = outlook_app.GetNamespace('MAPI')
         
         # 1. Strategy: Windows Search Index (ADODB) - Fast!
         if query:
+            logger.info(f"Attempting Windows Search Index for query: {query}")
             try:
                 conn = win32com.client.Dispatch("ADODB.Connection")
                 conn.Open("Provider=Search.CollatorDSO;Extended Properties='Application=Windows';")
@@ -739,6 +761,7 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
                 sql += " ORDER BY System.DateModified DESC"
                 
                 rs = conn.Execute(sql)[0]
+                idx_found = 0
                 while not rs.EOF:
                     if processed_count >= 50: break
                     item_url = rs.Fields.Item(0).Value # e.g. outlook:00000000...
@@ -748,24 +771,31 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
                             entry_id = item_url.split("outlook:")[1]
                             message = namespace.GetItemFromID(entry_id)
                             path = _save_outlook_message(message, "WindowsIndex")
-                            if path: saved_paths.append(path)
-                    except: pass
+                            if path: 
+                                saved_paths.append(path)
+                                idx_found += 1
+                    except Exception as e:
+                        logger.debug(f"Failed to retrieve item from ID {item_url}: {e}")
                     rs.MoveNext()
                 rs.Close()
                 conn.Close()
-            except Exception:
-                pass
+                logger.info(f"Windows Search Index strategy found {idx_found} items.")
+            except Exception as e:
+                logger.warning(f"Windows Search Index strategy failed: {e}")
 
         # 2. Strategy: DASL Filter (Outlook Native Search) - Medium Speed
         if processed_count < 10: # Only if ADODB didn't yield much
+            logger.info("Attempting DASL strategy (Outlook Native Search)...")
             targets = [namespace.GetDefaultFolder(6), namespace.GetDefaultFolder(5)]
             
             dasl_query = ""
             if query:
+                # Basic DASL Escaping for simple queries
+                clean_query = query.replace("'", "''")
                 dasl_query = (
-                    f"@SQL=\"urn:schemas:httpmail:subject\" LIKE '%{query}%' OR "
-                    f"\"urn:schemas:httpmail:textdescription\" LIKE '%{query}%' OR "
-                    f"\"urn:schemas:httpmail:fromname\" LIKE '%{query}%'"
+                    f"@SQL=\"urn:schemas:httpmail:subject\" LIKE '%{clean_query}%' OR "
+                    f"\"urn:schemas:httpmail:textdescription\" LIKE '%{clean_query}%' OR "
+                    f"\"urn:schemas:httpmail:fromname\" LIKE '%{clean_query}%'"
                 )
             
             if received_after:
@@ -776,13 +806,16 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
                         dasl_query = f"@SQL=({dasl_query.replace('@SQL=', '')}) AND {date_part}"
                     else:
                         dasl_query = f"@SQL={date_part}"
-                except: pass
+                except Exception as e:
+                    logger.warning(f"Failed to construct DASL date part: {e}")
 
             for folder in targets:
                 if processed_count >= 50: break
                 try:
+                    logger.info(f"Searching in folder: {folder.Name}")
                     items = folder.Items
                     if dasl_query:
+                        logger.debug(f"Applying DASL Filter: {dasl_query}")
                         items = items.Restrict(dasl_query)
                     items.Sort("[ReceivedTime]", True)
                     
@@ -790,45 +823,57 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
                         if processed_count >= 50: break
                         path = _save_outlook_message(message, folder.Name)
                         if path: saved_paths.append(path)
-                except Exception: continue
+                except Exception as e:
+                    logger.warning(f"DASL search in folder {getattr(folder, 'Name', 'Unknown')} failed: {e}")
+                    continue
 
         # 3. Strategy: Full Recursive Fallback (Current) - Slowest
         if processed_count == 0:
+            logger.info("Attempting Recursive Fallback strategy...")
             def process_folder_recursive(folder):
                 for sub in folder.Folders:
                     if processed_count >= 50: return
                     process_folder_recursive(sub)
                 
-                items = folder.Items
-                # Use crude restriction for dates if possible
-                if received_after:
-                    try:
-                        dt_obj = datetime.strptime(received_after, "%Y-%m-%d")
-                        local_filter = f"[ReceivedTime] >= '{dt_obj.strftime('%m/%d/%Y')} 00:00 AM'"
-                        items = items.Restrict(local_filter)
-                    except: pass
-                
-                for msg in items:
-                    if processed_count >= 50: return
-                    if query:
-                        subj = getattr(msg, 'Subject', '') or ''
-                        body = getattr(msg, 'Body', '') or ''
-                        if not re.search(query, f"{subj} {body}", re.I): continue
+                try:
+                    items = folder.Items
+                    # Use crude restriction for dates if possible
+                    if received_after:
+                        try:
+                            dt_obj = datetime.strptime(received_after, "%Y-%m-%d")
+                            local_filter = f"[ReceivedTime] >= '{dt_obj.strftime('%m/%d/%Y')} 00:00 AM'"
+                            items = items.Restrict(local_filter)
+                        except: pass
                     
-                    path = _save_outlook_message(msg, folder.Name)
-                    if path: saved_paths.append(path)
+                    for msg in items:
+                        if processed_count >= 50: return
+                        try:
+                            if query:
+                                subj = getattr(msg, 'Subject', '') or ''
+                                body = getattr(msg, 'Body', '') or ''
+                                if not re.search(query, f"{subj} {body}", re.I): continue
+                            
+                            path = _save_outlook_message(msg, folder.Name)
+                            if path: saved_paths.append(path)
+                        except Exception as e:
+                            logger.debug(f"Error checking message in recursive strategy: {e}")
+                except Exception as e:
+                    logger.debug(f"Error accessing items in folder {getattr(folder, 'Name', 'Unknown')}: {e}")
 
             for account in namespace.Folders:
                 if processed_count >= 50: break
+                logger.info(f"Recursively processing account: {account.Name}")
                 process_folder_recursive(account)
 
     except Exception as e:
+        logger.error(f"Critical error connecting to Outlook: {e}", exc_info=True)
         return f"Error connecting to Outlook: {e}"
 
+    logger.info(f"Finished import_outlook_emails. Total processed: {processed_count}")
     if processed_count == 0:
         return "No new emails found matching criteria."
     
-    return f"Imported {processed_count} emails. Saved to: {', '.join(saved_paths[:5])}..."
+    return f"Imported {processed_count} emails. Saved to: {', '.join(saved_paths[:5])}{' and more' if len(saved_paths) > 5 else ''}."
 
 
 # --- Tool Registry ---
