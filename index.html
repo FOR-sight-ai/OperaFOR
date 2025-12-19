@@ -1850,16 +1850,6 @@
                 return false;
             }
         }
-        document.getElementById('saveCloseConfigBtn').onclick = async function () {
-            try {
-                const configObj = JSON.parse(document.getElementById('config').value);
-                await saveConfig(configObj);
-            } catch (e) {
-                // Ignore erreurs de parsing
-            }
-            document.getElementById('configPanel').style.display = 'none';
-        };
-
         // Copy functionality
         function copyMessageText(element, button) {
             // Extract text content from the element
