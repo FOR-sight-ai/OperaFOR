@@ -1568,13 +1568,25 @@
                     body.style.display = 'none'; // Collapse by default
 
                     const argsDiv = document.createElement('div');
-                    argsDiv.innerHTML = `<strong>Args:</strong> <pre class="text-xs mt-1 bg-gray-100 p-2 rounded">${tc.function.arguments}</pre>`;
+                    const argsLabel = document.createElement('strong');
+                    argsLabel.textContent = 'Args:';
+                    const argsPre = document.createElement('pre');
+                    argsPre.className = 'text-xs mt-1 bg-gray-100 p-2 rounded whitespace-pre-wrap';
+                    argsPre.textContent = tc.function.arguments;
+                    argsDiv.appendChild(argsLabel);
+                    argsDiv.appendChild(argsPre);
                     body.appendChild(argsDiv);
 
                     if (tc.result) {
                         const resultDiv = document.createElement('div');
                         resultDiv.className = 'tool-result';
-                        resultDiv.innerHTML = `<strong>Result:</strong> ${tc.result}`;
+                        const resultLabel = document.createElement('strong');
+                        resultLabel.textContent = 'Result:';
+                        const resultPre = document.createElement('pre');
+                        resultPre.className = 'mt-1 p-2 bg-gray-50 rounded border border-gray-100 overflow-x-auto font-mono text-xs whitespace-pre-wrap';
+                        resultPre.textContent = tc.result;
+                        resultDiv.appendChild(resultLabel);
+                        resultDiv.appendChild(resultPre);
                         body.appendChild(resultDiv);
                     }
 
