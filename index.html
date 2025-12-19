@@ -729,9 +729,21 @@
                     <div id="floatingInputBar"
                         class="floating-input-bar z-30 flex items-center justify-center pointer-events-none">
                         <div class="input-inner pointer-events-auto">
+                            <div class="flex flex-col mr-3 space-y-2 justify-center">
+                                <button id="folderBtn"
+                                    class="text-gray-400 hover:text-blue-600 focus:outline-none transition-colors"
+                                    title="Add Folder Context">
+                                    <i class="fas fa-folder-plus text-lg"></i>
+                                </button>
+                                <button id="fileBtn"
+                                    class="text-gray-400 hover:text-blue-600 focus:outline-none transition-colors"
+                                    title="Add File Context">
+                                    <i class="fas fa-file-circle-plus text-lg"></i>
+                                </button>
+                            </div>
                             <textarea id="userInput" rows="2"
                                 class="flex-1 px-3 py-2 border border-gray-300 rounded-l-lg rounded-r-2xl shadow focus:outline-none focus:ring-blue-500 focus:border-blue-500 resize-none bg-white text-sm"
-                                placeholder="Votre message..."></textarea>
+                                placeholder="Votre message... (Tip: use [...] for paths with spaces)"></textarea>
                             <button id="sendBtn"
                                 class="ml-2 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-2xl shadow flex items-center"><i
                                     class="fas fa-paper-plane mr-2"></i>Send</button>
@@ -1763,6 +1775,36 @@
             });
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
+
+        // Helper to add path to input
+        function addPathToInput(path) {
+            if (!path) return;
+            const userInput = document.getElementById('userInput');
+            const separator = userInput.value && !userInput.value.endsWith('\n') ? '\n' : '';
+            userInput.value += `${separator}[${path}]`;
+            userInput.focus();
+            // Automatically scroll to bottom of textarea
+            userInput.scrollTop = userInput.scrollHeight;
+        }
+
+        // Folder/File Selectors
+        document.getElementById('folderBtn').onclick = async function () {
+            if (window.pywebview && window.pywebview.api) {
+                const path = await window.pywebview.api.select_folder();
+                addPathToInput(path);
+            } else {
+                alert("Folder selection is only available in the desktop application.");
+            }
+        };
+
+        document.getElementById('fileBtn').onclick = async function () {
+            if (window.pywebview && window.pywebview.api) {
+                const path = await window.pywebview.api.select_file();
+                addPathToInput(path);
+            } else {
+                alert("File selection is only available in the desktop application.");
+            }
+        };
 
         // Envoi avec bouton ou Entrée
         document.getElementById('sendBtn').onclick = function () { run(); };

@@ -23,6 +23,22 @@ file_formatter = logging.Formatter("%(asctime)s [%(levelname)s] [%(threadName)s]
 file_handler.setFormatter(file_formatter)
 
 
+class JSAPI:
+    def select_folder(self):
+        window = webview.active_window()
+        if not window:
+            return None
+        result = window.create_file_dialog(webview.FOLDER_DIALOG)
+        return result[0] if result else None
+
+    def select_file(self):
+        window = webview.active_window()
+        if not window:
+            return None
+        result = window.create_file_dialog(webview.OPEN_DIALOG)
+        return result[0] if result else None
+
+
 def run_fastapi():
     port = int(os.getenv("PORT", "9001"))
     import uvicorn
@@ -30,7 +46,8 @@ def run_fastapi():
 
 
 def run_webview():
-    webview.create_window("OperaFOR", url=f"http://localhost:{os.getenv('PORT', '9001')}")
+    api = JSAPI()
+    webview.create_window("OperaFOR", url=f"http://localhost:{os.getenv('PORT', '9001')}", js_api=api)
     webview.start()
 
 

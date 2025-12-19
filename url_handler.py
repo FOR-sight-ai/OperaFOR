@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 def extract_urls(text: str) -> Dict[str, List[str]]:
     """
     Extract file URLs and web URLs from text.
+    Supports paths with spaces if enclosed in brackets [path] or quotes "path".
     
     Returns:
         dict with keys 'web_urls' and 'file_urls'
@@ -33,8 +34,14 @@ def extract_urls(text: str) -> Dict[str, List[str]]:
     web_urls.extend(web_matches)
     
     # Pattern for file:// URLs
-    file_url_pattern = r'file://[^\s<>"{}|^`\[\]]+'
-    file_url_matches = re.findall(file_url_pattern, text)
+    # Support file:// URLs with spaces if in brackets/quotes, or without spaces otherwise
+    file_url_bracket_pattern = r'\[(file://[^\[\]]+)\]'
+    file_url_quote_pattern = r'["\'](file://[^"\']+)["\']'
+    file_url_basic_pattern = r'file://[^\s<>"{}|^`\[\]]+'
+    
+    file_url_matches = re.findall(file_url_bracket_pattern, text)
+    file_url_matches.extend(re.findall(file_url_quote_pattern, text))
+    file_url_matches.extend(re.findall(file_url_basic_pattern, text))
     
     # Convert file:// URLs to paths
     for url in file_url_matches:
@@ -42,20 +49,35 @@ def extract_urls(text: str) -> Dict[str, List[str]]:
         file_urls.append(path)
     
     # Pattern for absolute paths (Unix, Windows, and UNC)
-    # Unix: /path/to/file
-    # Windows: C:\path\to\file or C:/path/to/file
-    # UNC: \\server\share\path
+    # Brackets [path] - supports spaces
+    bracket_path_pattern = r'\[([^\[\]]{3,})\]' # Min 3 chars to avoid [a], [!]
+    # Quotes "path" - supports spaces
+    quote_path_pattern = r'["\']([^"\']{3,})["\']'
+    
+    # Original patterns (no spaces)
     unix_path_pattern = r'(?:^|\s)(/[^\s<>"{}|^`\[\]]+)'
     windows_path_pattern = r'(?:^|\s)([A-Za-z]:[/\\][^\s<>"{}|^`\[\]]*)'
     unc_path_pattern = r'(?:^|\s)(\\\\[^\s<>"{}|^`\[\]]+)'
     
+    bracket_matches = re.findall(bracket_path_pattern, text)
+    quote_matches = re.findall(quote_path_pattern, text)
     unix_matches = re.findall(unix_path_pattern, text)
     windows_matches = re.findall(windows_path_pattern, text)
     unc_matches = re.findall(unc_path_pattern, text)
     
-    # Validate that these are actual file paths
-    # Combine all matches and filter duplicates
-    potential_paths = list(set([p.strip() for p in unix_matches + windows_matches + unc_matches]))
+    # Combine all matches
+    potential_paths = []
+    for p in bracket_matches + quote_matches + unix_matches + windows_matches + unc_matches:
+        p = p.strip()
+        # Basic validation: must look like a path
+        if (p.startswith('/') or 
+            (len(p) > 2 and p[1:3] == ':\\') or 
+            (len(p) > 2 and p[1:3] == ':/') or 
+            p.startswith('\\\\')):
+            potential_paths.append(p)
+    
+    # Filter duplicates and validate existence
+    potential_paths = list(set(potential_paths))
     
     for path in potential_paths:
         if os.path.exists(path):
