@@ -1,6 +1,6 @@
 # OperaFOR
 
-OperaFOR is a minimalist graphical interface for LLM and RAG agents, designed to provide fast and simple access to powerful search tools via an agentic logic. Its streamlined architecture—just a single HTML file and a single Python file—enables rapid iteration and creativity.
+OperaFOR is a minimalist graphical interface for LLM and RAG agents, designed to provide fast and simple access to powerful search tools via an agentic logic. Its streamlined architecture—just a single HTML file and a less than 10 Python files—enables rapid iteration and creativity.
 
 ![screenshot](screenshot.png)
 
