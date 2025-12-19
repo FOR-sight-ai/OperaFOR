@@ -743,7 +743,7 @@
                             </div>
                             <textarea id="userInput" rows="2"
                                 class="flex-1 px-3 py-2 border border-gray-300 rounded-l-lg rounded-r-2xl shadow focus:outline-none focus:ring-blue-500 focus:border-blue-500 resize-none bg-white text-sm"
-                                placeholder="Votre message... (Tip: use [...] for paths with spaces)"></textarea>
+                                placeholder="ex : make a summary of https://github.com/FOR-sight-ai/OperaFOR/tree/main level 1, put it in a file."></textarea>
                             <button id="sendBtn"
                                 class="ml-2 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-2xl shadow flex items-center"><i
                                     class="fas fa-paper-plane mr-2"></i>Send</button>
@@ -1111,17 +1111,27 @@
         document.getElementById('configPanelBtn').onclick = function () {
             updateConfigUI();
             document.getElementById('configPanel').style.display = 'flex';
+            // Hide other panels to avoid overlap issues
+            document.getElementById('chatView').style.display = 'none';
+            document.getElementById('timelineView').style.display = 'none';
+            document.getElementById('floatingInputBar').style.display = 'none';
         };
 
         document.getElementById('closeConfigBtn').onclick =
             document.getElementById('cancelConfigBtn').onclick = function () {
                 document.getElementById('configPanel').style.display = 'none';
+                // Restore views based on currentView
+                switchView(currentView);
+                updateInputBarVisibility();
             };
 
         document.getElementById('saveConfigBtn').onclick = async function () {
             const config = getConfigFromUI();
             await saveConfig(config);
             document.getElementById('configPanel').style.display = 'none';
+            // Restore views based on currentView
+            switchView(currentView);
+            updateInputBarVisibility();
             alert('Configuration saved successfully!');
         };
 
