@@ -1,6 +1,7 @@
 import logging
 from typing import Any, Dict, List, Union
 from datetime import datetime
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,7 @@ def list_files(sandbox_id: str, max_depth: int = None) -> List[str]:
 def read_file(sandbox_id: str, file_name: str, model_name: str = None, start_line: int = 1, end_line: int = -1) -> str:
     """
     Read a file from the sandbox directory, optionally specifying a line range.
+    Supports text, .docx, and .pptx files.
     
     Args:
         sandbox_id: The sandbox ID
@@ -175,7 +177,7 @@ def read_file(sandbox_id: str, file_name: str, model_name: str = None, start_lin
 
 
 def write_to_file(sandbox_id: str, file_name: str, content: str) -> str:
-    """Write content to a file in the sandbox."""
+    """Write content to a file in the sandbox. Supports text, .docx, and .pptx files."""
     sandbox_path = get_sandbox_path(sandbox_id)
     file_path = os.path.join(sandbox_path, file_name)
     try:
@@ -219,7 +221,7 @@ def write_to_file(sandbox_id: str, file_name: str, content: str) -> str:
 
 
 def append_to_file(sandbox_id: str, file_name: str, content: str) -> str:
-    """Append content to a file in the sandbox."""
+    """Append content to a file in the sandbox. Supports text, .docx, and .pptx files."""
     sandbox_path = get_sandbox_path(sandbox_id)
     file_path = os.path.join(sandbox_path, file_name)
     try:
@@ -281,7 +283,7 @@ def delete_file(sandbox_id: str, file_name: str) -> str:
 
 
 def edit_file(sandbox_id: str, file_path: str, edits: List[Dict[str, str]], dry_run: bool = False, options: Dict[str, Any] = None) -> Union[Dict[str, Any], str]:
-    """Make selective edits to files while preserving formatting."""
+    """Make selective edits to files while preserving formatting. Supports text, .docx, and .pptx files."""
     
     def normalize_line_endings(text: str) -> str:
         return text.replace("\r\n", "\n")
@@ -499,7 +501,7 @@ def search_files(sandbox_id: str, pattern: str) -> List[str]:
 
 
 def search_content(sandbox_id: str, query: str, case_sensitive: bool = False) -> str:
-    """Search for text content within files."""
+    """Search for text content within files. Supports text, .docx, and .pptx files."""
     sandbox_path = get_sandbox_path(sandbox_id)
     if not os.path.exists(sandbox_path):
         return "Sandbox directory does not exist."
@@ -924,7 +926,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_content",
-            "description": "Search for text content within files (grep-like).",
+            "description": "Search for text content within files (grep-like). Supports text, .docx, and .pptx.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -953,7 +955,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read a file from the current working directory. Use start_line/end_line for pagination.",
+            "description": "Read a file from the current working directory. Supports text, .docx, and .pptx. Use start_line/end_line for pagination.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -969,7 +971,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "write_to_file",
-            "description": "Write content to a file (overwrites).",
+            "description": "Write content to a file (overwrites). Supports text, .docx, and .pptx.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -984,7 +986,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "append_to_file",
-            "description": "Append content to a file.",
+            "description": "Append content to a file. Supports text, .docx, and .pptx.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1013,7 +1015,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "edit_file",
-            "description": "Edit a file using search and replace blocks.",
+            "description": "Edit a file using search and replace blocks. Supports text, .docx, and .pptx.",
             "parameters": {
                 "type": "object",
                 "properties": {

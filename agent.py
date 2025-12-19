@@ -205,9 +205,9 @@ async def runAgent(sandbox_id):
         # Filter out writing tools
         read_only_tool_names = ["list_files", "read_file", "get_folder_structure", "search_files", "search_content", "get_file_info"]
         current_tools = [t for t in TOOL_DEFINITIONS if t["function"]["name"] in read_only_tool_names]
-        system_prompt = f"You are a coding assistant. You have access to a sandbox environment with ID {sandbox_id}. This sandbox is pending READ-ONLY mode. You can ONLY read files. You CANNOT write, edit, or delete files. Use the provided tools."
+        system_prompt = f"You are a coding assistant. You have access to a sandbox environment with ID {sandbox_id}. This sandbox is pending READ-ONLY mode. You can ONLY read files (including .docx and .pptx). You CANNOT write, edit, or delete files. Use the provided tools."
     else:
-        system_prompt = f"You are a coding assistant. You have access to a sandbox environment with ID {sandbox_id}. You can read, write, edit files. Prefer editing files over overwriting them. Use the provided tools."
+        system_prompt = f"You are a coding assistant. You have access to a sandbox environment with ID {sandbox_id}. You can read, write, edit files (including .docx and .pptx). Prefer editing files over overwriting them. Use the provided tools."
     
     openai_messages.insert(0, {"role": "system", "content": system_prompt})
     
