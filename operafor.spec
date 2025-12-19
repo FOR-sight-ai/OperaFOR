@@ -9,8 +9,10 @@ block_cipher = None
 # Collect metadata for packages that need it
 datas = [('index.html', '.')]
 # Removed metadata copies for removed libraries
+datas += collect_data_files('pptx')
+datas += collect_data_files('docx')
 
-hidden_imports = ['aiohttp']
+hidden_imports = ['aiohttp', 'pptx', 'docx']
 if sys.platform == 'win32':
     hidden_imports.extend(['win32com', 'win32com.client', 'pythoncom'])
 
@@ -23,7 +25,7 @@ a = Analysis(
     hookspath=['hooks'],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['torch', 'tensorflow', 'pandas', 'numpy', 'scipy', 'matplotlib', 'pyarrow', 'notebook', 'jupyter', 'lxml', 'openpyxl', 'sympy', 'transformers', 'duckduckgo_search'],
+    excludes=['torch', 'tensorflow', 'pandas', 'numpy', 'scipy', 'matplotlib', 'pyarrow', 'notebook', 'jupyter', 'openpyxl', 'sympy', 'transformers', 'duckduckgo_search'],
     noarchive=False,
     optimize=0,
 )
