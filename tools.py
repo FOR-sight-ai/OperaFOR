@@ -22,6 +22,7 @@ except ImportError:
 
 from utils import get_sandbox_path, is_vlm
 from pptx_handler import get_pptx_inventory, edit_pptx_inplace
+from docx_handler import get_docx_xml, edit_docx_xml
 
 
 # --- Tool Functions ---
@@ -125,17 +126,7 @@ def read_file(sandbox_id: str, file_name: str, model_name: str = None, start_lin
 
     # DOCX Support
     if file_name.lower().endswith(".docx"):
-        if not docx:
-            return "Error: python-docx library not available."
-        try:
-            doc = docx.Document(file_path)
-            content = "\n".join([para.text for para in doc.paragraphs])
-            lines = content.splitlines(keepends=True)
-            start_idx = max(0, start_line - 1)
-            stop_idx = None if end_line == -1 else end_line
-            return "".join(lines[start_idx:stop_idx])
-        except Exception as e:
-            return f"Error reading DOCX: {e}"
+        return get_docx_xml(file_path)
 
     # PPTX Support
     if file_name.lower().endswith(".pptx"):
@@ -349,6 +340,11 @@ def edit_file(sandbox_id: str, file_path: str, edits: List[Dict[str, str]], dry_
     if not os.path.isfile(full_file_path):
         return json.dumps({"success": False, "error": f"File not found: {file_path}"})
 
+    if file_path.lower().endswith(".docx"):
+        if dry_run:
+            return json.dumps({"success": True, "message": "Dry run not supported for DOCX, but file exists."})
+        return edit_docx_xml(full_file_path, edits)
+
     if file_path.lower().endswith(".pptx"):
         if dry_run:
             return json.dumps({"success": True, "message": "Dry run not supported for PPTX, but file exists."})
@@ -501,9 +497,9 @@ def search_content(sandbox_id: str, query: str, case_sensitive: bool = False) ->
                 
             try:
                 if file.lower().endswith(".docx"):
-                    if not docx: continue
-                    doc = docx.Document(file_path)
-                    lines = [para.text for para in doc.paragraphs]
+                    # For DOCX, we search the XML structure
+                    structure = get_docx_xml(file_path)
+                    lines = structure.splitlines()
                 elif file.lower().endswith(".pptx"):
                     if not Presentation: continue
                     prs = Presentation(file_path)
