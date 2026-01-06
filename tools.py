@@ -20,9 +20,9 @@ try:
 except ImportError:
     Presentation = None
 
-from utils import get_sandbox_path, is_vlm
-from pptx_handler import get_pptx_inventory, edit_pptx_inplace
-from docx_handler import get_docx_xml, edit_docx_xml
+from utils import get_sandbox_path, is_vlm, call_llm, get_proxies, DEFAULT_CONFIG
+import glob
+from concurrent.futures import ThreadPoolExecutor
 
 
 # --- Tool Functions ---
@@ -854,6 +854,101 @@ def import_outlook_emails(sandbox_id: str, query: str = None, received_after: st
     return f"Imported {processed_count} emails. Saved to: {', '.join(saved_paths[:5])}{' and more' if len(saved_paths) > 5 else ''}."
 
 
+def parallel_analyze_content(sandbox_id: str, targets: Union[str, List[str]], prompt: str, model_name: str = None) -> str:
+    """
+    Analyze multiple files or glob patterns in parallel using sub-agents.
+    
+    Args:
+        sandbox_id: The sandbox ID
+        targets: Single string or list of strings (filenames or glob patterns)
+        prompt: Prompt for the sub-agent LLM
+        model_name: The model to use (optional)
+    """
+    import os
+    sandbox_path = get_sandbox_path(sandbox_id)
+    if not os.path.exists(sandbox_path):
+        return "Error: Sandbox path does not exist."
+
+    if isinstance(targets, str):
+        targets = [targets]
+
+    # Resolve all targets to a unique list of file paths
+    all_files = set()
+    for target in targets:
+        # Resolve target relative to sandbox_path
+        # glob handles patterns like "*.txt"
+        search_pattern = os.path.join(sandbox_path, target)
+        matches = glob.glob(search_pattern, recursive=True)
+        for m in matches:
+            if os.path.isfile(m):
+                all_files.add(os.path.relpath(m, sandbox_path))
+
+    if not all_files:
+        return f"Error: No files found matching targets: {targets}"
+
+    # Read all files and combine content
+    combined_content = ""
+    for file_name in sorted(list(all_files)):
+        try:
+            content = read_file(sandbox_id, file_name, model_name)
+            combined_content += f"\n--- File: {file_name} ---\n{content}\n"
+        except Exception as e:
+            combined_content += f"\n--- File: {file_name} ---\nError reading file: {e}\n"
+
+    # Chunking logic
+    chunk_size = 8000  # Characters
+    overlap = 1000
+    chunks = []
+    
+    if len(combined_content) <= chunk_size:
+        chunks.append(combined_content)
+    else:
+        start = 0
+        while start < len(combined_content):
+            end = min(start + chunk_size, len(combined_content))
+            chunks.append(combined_content[start:end])
+            if end == len(combined_content):
+                break
+            start = end - overlap
+
+    # Get config for LLM calls
+    from utils import CONFIG_PATH
+    import json
+    if not os.path.exists(CONFIG_PATH):
+        config = DEFAULT_CONFIG
+    else:
+        with open(CONFIG_PATH, "r") as f:
+            config = json.load(f)
+
+    # Prepare parallel calls
+    def process_chunk(chunk_content, chunk_index, total_chunks):
+        sub_prompt = f"Analyze the following document chunk based on this prompt: {prompt}\n\n[Chunk {chunk_index+1}/{total_chunks}]\n\nContent:\n{chunk_content}"
+        messages = [{"role": "user", "content": sub_prompt}]
+        response = call_llm(messages, None, config)
+        
+        if "error" in response:
+            return f"Error analyzing chunk {chunk_index+1}: {response['error']}"
+        
+        choice = response.get("choices", [{}])[0]
+        return choice.get("message", {}).get("content", "No response content")
+
+    results = []
+    with ThreadPoolExecutor(max_workers=min(len(chunks), 10)) as executor:
+        futures = [executor.submit(process_chunk, chunks[i], i, len(chunks)) for i in range(len(chunks))]
+        for future in futures:
+            try:
+                results.append(future.result())
+            except Exception as e:
+                results.append(f"Exception during chunk processing: {e}")
+
+    # Combine results
+    final_output = f"Parallel Analysis Results (Processed {len(all_files)} files in {len(chunks)} chunks):\n\n"
+    for i, res in enumerate(results):
+        final_output += f"--- Result Part {i+1} ---\n{res}\n\n"
+
+    return final_output
+
+
 # --- Tool Registry ---
 
 TOOL_DEFINITIONS = [
@@ -1032,6 +1127,28 @@ TOOL_DEFINITIONS = [
                 "required": ["query"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "parallel_analyze_content",
+            "description": "Analyze multiple files or glob patterns in parallel using sub-agents. Useful for large documents or searching across many files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "targets": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "A list of file names or glob patterns (e.g. ['*.txt', 'docs/data.csv'])."
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "The analysis prompt or question to ask the sub-agents for each part of the content."
+                    }
+                },
+                "required": ["targets", "prompt"]
+            }
+        }
     }
 ]
 
@@ -1076,6 +1193,13 @@ def execute_tool(name: str, args: Dict[str, Any]) -> str:
             ))
         elif name == "import_outlook_emails":
             return str(import_outlook_emails(args.get("sandbox_id"), args.get("query"), args.get("received_after")))
+        elif name == "parallel_analyze_content":
+            return str(parallel_analyze_content(
+                args.get("sandbox_id"),
+                args.get("targets"),
+                args.get("prompt"),
+                args.get("model_name")
+            ))
         else:
             return f"Error: Tool {name} not found."
     except Exception as e:

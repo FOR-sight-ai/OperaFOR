@@ -230,3 +230,62 @@ def get_cache_stats(sandbox_id: str) -> dict:
         print(f"Error loading cache stats for sandbox {sandbox_id}: {e}")
         return {}
 
+
+# --- LLM utilities ---
+
+def call_llm(messages, tools, config):
+    """Call LLM with retry logic."""
+    import time
+    import requests
+    
+    endpoint = config.get("llm", {}).get("endpoint", "https://openrouter.ai/api/v1")
+    if not endpoint.endswith("/chat/completions"):
+        endpoint = endpoint.rstrip("/") + "/chat/completions"
+    
+    api_key = config.get("llm", {}).get("apiKey")
+    model = config.get("llm", {}).get("model")
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    # Some providers 400 if tools is empty list
+    payload_tools = tools if tools else None
+    
+    data = {
+        "model": model,
+        "messages": messages,
+        "tools": payload_tools,
+        "stream": False 
+    }
+    if not payload_tools:
+        del data["tools"]
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            print(f"LLM Call Attempt {attempt+1}/{max_retries}...")
+            proxies = get_proxies(config, endpoint)
+            response = requests.post(endpoint, json=data, headers=headers, timeout=60, proxies=proxies)
+            
+            if response.status_code == 400:
+                print(f"400 Bad Request Details: {response.text}")
+                return {"error": f"400 Bad Request: {response.text}"}
+            
+            response.raise_for_status()
+            return response.json()
+            
+        except requests.exceptions.RequestException as e:
+            print(f"LLM Call Error (Attempt {attempt+1}): {e}")
+            if getattr(e, 'response', None):
+                 print(f"Error Response Body: {e.response.text}")
+
+            if attempt < max_retries - 1:
+                sleep_time = 2 ** attempt
+                print(f"Retrying in {sleep_time} seconds...")
+                time.sleep(sleep_time)
+            else:
+                 return {"error": str(e)}
+    
+    return {"error": "Max retries exceeded"}
