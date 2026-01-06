@@ -21,6 +21,7 @@ except ImportError:
     Presentation = None
 
 from utils import get_sandbox_path, is_vlm
+from pptx_handler import get_pptx_inventory, edit_pptx_inplace
 
 
 # --- Tool Functions ---
@@ -138,22 +139,7 @@ def read_file(sandbox_id: str, file_name: str, model_name: str = None, start_lin
 
     # PPTX Support
     if file_name.lower().endswith(".pptx"):
-        if not Presentation:
-            return "Error: python-pptx library not available."
-        try:
-            prs = Presentation(file_path)
-            text_runs = []
-            for slide in prs.slides:
-                for shape in slide.shapes:
-                    if hasattr(shape, "text"):
-                        text_runs.append(shape.text)
-            content = "\n".join(text_runs)
-            lines = content.splitlines(keepends=True)
-            start_idx = max(0, start_line - 1)
-            stop_idx = None if end_line == -1 else end_line
-            return "".join(lines[start_idx:stop_idx])
-        except Exception as e:
-            return f"Error reading PPTX: {e}"
+        return get_pptx_inventory(file_path)
 
     try:
         # Optimized reading for large files
@@ -363,6 +349,11 @@ def edit_file(sandbox_id: str, file_path: str, edits: List[Dict[str, str]], dry_
     if not os.path.isfile(full_file_path):
         return json.dumps({"success": False, "error": f"File not found: {file_path}"})
 
+    if file_path.lower().endswith(".pptx"):
+        if dry_run:
+            return json.dumps({"success": True, "message": "Dry run not supported for PPTX, but file exists."})
+        return edit_pptx_inplace(full_file_path, edits)
+
     normalized_edits = []
     for i, edit in enumerate(edits):
         if not isinstance(edit, dict):
@@ -380,16 +371,6 @@ def edit_file(sandbox_id: str, file_path: str, edits: List[Dict[str, str]], dry_
                 return json.dumps({"success": False, "error": "python-docx library not available."})
             doc = docx.Document(full_file_path)
             original_content = "\n".join([para.text for para in doc.paragraphs])
-        elif file_path.lower().endswith(".pptx"):
-            if not Presentation:
-                return json.dumps({"success": False, "error": "python-pptx library not available."})
-            prs = Presentation(full_file_path)
-            text_runs = []
-            for slide in prs.slides:
-                for shape in slide.shapes:
-                    if hasattr(shape, "text"):
-                        text_runs.append(shape.text)
-            original_content = "\n".join(text_runs)
         else:
             with open(full_file_path, "r", encoding="utf-8") as f:
                 original_content = f.read()
@@ -427,14 +408,6 @@ def edit_file(sandbox_id: str, file_path: str, edits: List[Dict[str, str]], dry_
                 for line in modified_content.splitlines():
                     doc.add_paragraph(line)
                 doc.save(full_file_path)
-            elif file_path.lower().endswith(".pptx"):
-                prs = Presentation()
-                blank_slide_layout = prs.slide_layouts[6]
-                slide = prs.slides.add_slide(blank_slide_layout)
-                from pptx.util import Inches
-                txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(5))
-                txBox.text_frame.text = modified_content
-                prs.save(full_file_path)
             else:
                 with open(full_file_path, "w", encoding="utf-8") as f:
                     f.write(modified_content)
@@ -535,10 +508,12 @@ def search_content(sandbox_id: str, query: str, case_sensitive: bool = False) ->
                     if not Presentation: continue
                     prs = Presentation(file_path)
                     lines = []
+                    def get_text(shapes):
+                        for s in shapes:
+                            if hasattr(s, "shapes"): get_text(s.shapes)
+                            elif hasattr(s, "text"): lines.append(s.text)
                     for slide in prs.slides:
-                        for shape in slide.shapes:
-                            if hasattr(shape, "text"):
-                                lines.append(shape.text)
+                        get_text(slide.shapes)
                 else:
                     with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                         lines = f.readlines()
@@ -960,7 +935,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read a file from the current working directory. Supports text, .docx, and .pptx. Use start_line/end_line for pagination.",
+            "description": "Read a file from the sandbox directory. Supports text, .docx, and .pptx (returns JSON inventory). Use start_line/end_line for pagination of text files.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1020,7 +995,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "edit_file",
-            "description": "Edit a file using search and replace blocks. Supports text, .docx, and .pptx.",
+            "description": "Edit a file using search and replace blocks. Supports text, .docx, and .pptx (in-place text replacement).",
             "parameters": {
                 "type": "object",
                 "properties": {

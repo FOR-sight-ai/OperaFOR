@@ -27,4 +27,4 @@ dependencies = [
 ]
 
 [tool.setuptools]
-py-modules = ["context_manager", "tools", "api", "file_preprocessor", "url_handler", "utils", "agent", "context_cache", "main"]
+py-modules = ["context_manager", "tools", "api", "file_preprocessor", "url_handler", "utils", "agent", "context_cache", "main", "pptx_handler"]
