@@ -78,16 +78,20 @@ async def runAgent(sandbox_id):
 
     messages = conv.get("messages", [])
 
-    # --- URL PROCESSING: Process URLs in the last user message before building context ---
-    if messages:
-        # Get the last user message
-        last_user_msg_idx = None
-        for i in range(len(messages) - 1, -1, -1):
-            if messages[i].get("role") == "user":
-                last_user_msg_idx = i
-                break
+    # Find last user message step for commit association
+    last_user_msg_idx = len(messages) - 1
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].get("role") == "user":
+            last_user_msg_idx = i
+            break
+    
+    # Startup commit
+    commit_sandbox_changes(sandbox_id, last_user_msg_idx, "Agent startup")
 
-        if last_user_msg_idx is not None:
+    # --- URL PROCESSING: Process URLs in the last user message before building context ---
+    artifact_change = False
+    if messages:
+        if last_user_msg_idx != -1:
             last_user_msg = messages[last_user_msg_idx]
             content = last_user_msg.get("content", "")
 
@@ -95,9 +99,8 @@ async def runAgent(sandbox_id):
                 try:
                     updated_content, url_results = process_urls_in_prompt(content, sandbox_id)
                     if url_results:
-
+                        artifact_change = True
                         logger.info(f"Processed URLs in user message: {len(url_results)} files imported")
-                        # Optionally, you could yield a status message to the user here
                 except Exception as e:
                     logger.error(f"Error processing URLs in message: {e}")
 
@@ -106,10 +109,14 @@ async def runAgent(sandbox_id):
         model_name = config.get("llm", {}).get("model")
         conversions = preprocess_sandbox_files(sandbox_id, model_name)
         if conversions:
+            artifact_change = True
             logger.info(f"Preprocessed {len(conversions)} files: {conversions}")
     except Exception as e:
         logger.error(f"Error during file preprocessing: {e}")
-        # Continue even if preprocessing fails
+    
+    # Commit after artifacts if any
+    if artifact_change:
+        commit_sandbox_changes(sandbox_id, last_user_msg_idx, "Artifacts downloaded and converted")
 
     # --- PERSISTENCE: Save a pending assistant message ---
     # This ensures "Working..." is shown even after reload
@@ -123,13 +130,11 @@ async def runAgent(sandbox_id):
     # Ensure messages are in OpenAI format
     openai_messages = []
     # Note: We iterate over messages but SKIP the last one (which is our pending placeholder)
-    # for the LLM context, because we don't want to feed an empty assistant message to the LLM.
     for m in messages[:-1]:
         role = m.get("role")
         content = m.get("content")
-        # Map roles if needed, but they should be standard
         if role not in ["user", "assistant", "system", "tool"]:
-             role = "user"  # default
+             role = "user"
         
         msg_obj = {"role": role, "content": content}
         if "tool_calls" in m and m["tool_calls"]:
@@ -254,46 +259,50 @@ async def runAgent(sandbox_id):
             content = message.get("content")
             tool_calls = message.get("tool_calls")
             
-            # Append assistant message to history used for next turn
-            openai_messages.append(message)
+            # Save assistant message to history (incremental)
+            msg_to_save = message.copy()
+            msg_to_save["status"] = "done"
+            # Remove pending placeholder before adding new Turn
+            if messages and messages[-1].get("status") == "pending":
+                messages.pop()
+            messages.append(msg_to_save)
+            
+            # Re-add pending placeholder for the next assistant or tool result
+            messages.append({"role": "assistant", "content": "", "status": "pending"})
+            conv["messages"] = messages
+            convs[sandbox_id] = conv
+            save_all_sandboxes(convs)
             
             # Yield content if any
             if content:
-                # Determine message type: if tools are called, content is usually "thought"
                 msg_type = "thought" if tool_calls else "content"
                 yield json.dumps({"type": msg_type, "data": content}) + "\n"
                 
             if tool_calls:
-                # Emit status that we're about to execute tools
                 yield json.dumps({
                     "type": "status",
                     "data": f"Executing {len(tool_calls)} tool(s)..."
                 }) + "\n"
+
+                modifying_tools = ["write_to_file", "append_to_file", "delete_file", "edit_file", "import_outlook_emails"]
 
                 for tc in tool_calls:
                     func_name = tc["function"]["name"]
                     args_str = tc["function"]["arguments"]
                     call_id = tc["id"]
 
-                    # Emit tool call event
                     yield json.dumps({
                         "type": "tool_call",
-                        "data": {
-                            "name": func_name,
-                            "arguments": args_str,
-                            "id": call_id
-                        }
+                        "data": {"name": func_name, "arguments": args_str, "id": call_id}
                     }) + "\n"
 
                     try:
                         args = json.loads(args_str)
-                        args["sandbox_id"] = sandbox_id  # Inject sandbox_id
-                        args["model_name"] = config.get("llm", {}).get("model")  # Inject model_name
+                        args["sandbox_id"] = sandbox_id
+                        args["model_name"] = config.get("llm", {}).get("model")
                         
                         result = execute_tool(func_name, args)
                         
-                        # Emit tool result event
-                        # Check for images in result
                         content_payload = result
                         is_image = False
                         try:
@@ -309,7 +318,6 @@ async def runAgent(sandbox_id):
                                             "image_url": {"url": f"data:image/png;base64,{img}"}
                                         })
                         except Exception as e:
-                            print(f"Error parsing image result: {e}")
                             pass
                         
                         yield json.dumps({
@@ -334,15 +342,34 @@ async def runAgent(sandbox_id):
                             }
                         }) + "\n"
                     
-                    # Append tool result
-                    openai_messages.append({
+                    # Append tool result to history (incremental)
+                    tool_msg = {
                         "role": "tool",
                         "tool_call_id": call_id,
-                        "content": content_payload
-                    })
+                        "name": func_name,
+                        "content": content_payload,
+                        "status": "done"
+                    }
+                    openai_messages.append(tool_msg)
+                    
+                    # Update saved state
+                    if messages and messages[-1].get("status") == "pending":
+                        messages.pop()
+                    messages.append(tool_msg)
+                    messages.append({"role": "assistant", "content": "", "status": "pending"})
+                    conv["messages"] = messages
+                    convs[sandbox_id] = conv
+                    save_all_sandboxes(convs)
+
+                    # Commit if it's a modifying tool
+                    if func_name in modifying_tools:
+                        commit_sandbox_changes(sandbox_id, len(messages)-2, f"Tool: {func_name}")
+
             else:
                  # No tool calls, we are done
                  agent_success = True
+                 # Final commit after last response
+                 commit_sandbox_changes(sandbox_id, len(messages)-2, "Agent final response")
                  break
         
     except Exception as e:
@@ -352,52 +379,29 @@ async def runAgent(sandbox_id):
         
     finally:
         # --- FINALLY: Update the pending message ---
-        # This runs whether success, error, or cancelled (client disconnect)
         try:
             convs = load_all_sandboxes()
             conv = convs.get(sandbox_id)
             if conv:
                 messages = conv.get("messages", [])
-                # Remove the pending message we added at the start
+                # Remove the pending message
                 if messages and messages[-1].get("status") == "pending":
                     messages.pop()
-                
-                # Use agent_success flag to determine status
-                final_status = "done" if agent_success else "error"
-                
-                # Recover any new messages and append them
-                new_msgs = openai_messages[initial_openai_count:]
-                for msg in new_msgs:
-                     msg["status"] = "done"
-                     messages.append(msg)
                 
                 if not agent_success:
                      messages.append({"role": "assistant", "content": "Generation interrupted or failed.", "status": "error"})
                 
-                # We look for the *last* user message.
+                # Ensure last user message is marked as done
                 for i in range(len(messages) - 1, -1, -1):
                     if messages[i].get("role") == "user":
-                        # If it is pending, close it.
                         if messages[i].get("status") == "pending":
                              messages[i]["status"] = "done" if agent_success else "error"
-                        # We only need to update the last one that triggered this run
                         break
 
                 conv["messages"] = messages
                 convs[sandbox_id] = conv
                 save_all_sandboxes(convs)
                 
-                # Git Commit
-                last_user_msg = "Update"
-                for m in reversed(messages):
-                    if m.get("role") == "user":
-                        last_user_msg = m.get("content", "Update")
-                        break
-                
-                commit_msg = f"Agent update: {last_user_msg[:30]}..."
-                
-                sandbox_path = get_sandbox_path(sandbox_id)
-                commit_sandbox_changes(sandbox_path, conv["messages"], commit_msg)
         except Exception as e:
             print(f"Critical error saving conversation state: {e}")
             

@@ -101,20 +101,30 @@ async def api_create_sandbox(request: Request):
         messages = []
 
     # Handle file copying for forks
+    original_commits = []
     if source_id:
         convs = load_all_sandboxes()
         if source_id in convs:
+            source_conv = convs[source_id]
+            original_commits = source_conv.get("commits", [])
             source_path = get_sandbox_path(source_id)
             if os.path.exists(source_path):
                 import shutil
                 target_path = os.path.join(SANDBOXES_DIR, conv_id)
                 try:
                     # Create target directory and copy files
-                    shutil.copytree(source_path, target_path, ignore=shutil.ignore_patterns('.git', 'conversation.json'))
+                    # We copy everything including .git to preserve history
+                    shutil.copytree(source_path, target_path, ignore=shutil.ignore_patterns('conversation.json', '__pycache__', '*.pyc'))
                 except Exception as e:
                     print(f"Error copying files during fork: {e}")
 
-    conv = {"id": conv_id, "title": title, "read_only": read_only, "messages": messages}
+    conv = {
+        "id": conv_id, 
+        "title": title, 
+        "read_only": read_only, 
+        "messages": messages,
+        "commits": original_commits
+    }
     convs = load_all_sandboxes()
     convs[conv_id] = conv
     save_all_sandboxes(convs)
@@ -190,7 +200,7 @@ async def api_patch_sandbox(conv_id: str, request: Request):
     if update_commit:
         commits = conv.get("commits", [])
         target_step = len(new_messages) - 1
-        target_commit = next((c for c in commits if c["step"] == target_step), None)
+        target_commit = next((c for c in reversed(commits) if c["step"] == target_step), None)
         if target_commit:
             sandbox_path = get_sandbox_path(conv_id)
             revert_sandbox_to_commit(sandbox_path, target_commit["hash"])
@@ -221,7 +231,7 @@ async def api_revert_sandbox(conv_id: str, request: Request):
         return JSONResponse(status_code=404, content={"error": "Sandbox not found"})
     if step is not None and commit_hash is None:
         commits = conv.get("commits", [])
-        target_commit = next((c for c in commits if c["step"] == step), None)
+        target_commit = next((c for c in reversed(commits) if c["step"] == step), None)
         if not target_commit:
             return JSONResponse(status_code=404, content={"error": "Commit for step not found"})
         commit_hash = target_commit["hash"]

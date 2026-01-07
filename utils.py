@@ -109,12 +109,24 @@ def write_conversation_json(sandbox_path: str, messages: list) -> str:
     return conversation_path
 
 
-def commit_sandbox_changes(sandbox_path: str, messages: list, commit_message: str) -> str:
-    """Commit all changes in the sandbox folder including conversation.json."""
+def commit_sandbox_changes(sandbox_id: str, step: int, commit_message: str) -> str:
+    """Commit all changes in the sandbox folder and update sandboxes.json."""
     from dulwich import porcelain
+    from datetime import datetime
+    
+    sandbox_path = get_sandbox_path(sandbox_id)
     repo = init_or_get_repo(sandbox_path)
     
-    # Write conversation.json
+    # Load conversation to get current messages
+    sandboxes = load_all_sandboxes()
+    conv = sandboxes.get(sandbox_id)
+    if not conv:
+        print(f"Error: Sandbox {sandbox_id} not found when committing.")
+        return ""
+    
+    messages = conv.get("messages", [])
+    
+    # Write conversation.json into the sandbox folder for self-containment
     write_conversation_json(sandbox_path, messages)
     
     # Add all files in the sandbox folder
@@ -132,9 +144,32 @@ def commit_sandbox_changes(sandbox_path: str, messages: list, commit_message: st
     
     # Commit changes
     try:
-        commit_hash = porcelain.commit(sandbox_path, commit_message.encode('utf-8'))
-        return commit_hash.decode('utf-8')
+        commit_hash_bytes = porcelain.commit(sandbox_path, commit_message.encode('utf-8'))
+        commit_hash = commit_hash_bytes.decode('utf-8')
+        
+        # Update commits list in sandboxes.json
+        commits = conv.setdefault("commits", [])
+        commit_info = {
+            "hash": commit_hash,
+            "step": step,
+            "message": commit_message,
+            "timestamp": datetime.now().isoformat()
+        }
+        commits.append(commit_info)
+        
+        # Save updated sandboxes.json
+        sandboxes[sandbox_id] = conv
+        save_all_sandboxes(sandboxes)
+        
+        return commit_hash
     except Exception as e:
+        # porcelain.commit can fail if there's nothing to commit
+        if "nothing to commit" in str(e).lower():
+            # If nothing to commit, we might still want to record the step if it's important,
+            # but usually we only care about changes.
+            # However, for the user's requirement "commit after each tool call that make a modification",
+            # if we call it and nothing changed, it's fine to just return empty.
+            return ""
         print(f"Error committing changes: {e}")
         return ""
 
